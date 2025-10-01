@@ -70,8 +70,12 @@ visualizeModelExistence = function(sampledTree, model){
 
 tree = generateTree(199, c(0,0,1,1))
 
-tree_sampled = sample_models_per_region(tree, 3, 0.1)
+orderBoundaries_GeminiCleaned(tree)
 
-visualizeModelExistence(tree_sampled, 3)
+plotTreeGrid(tree)
+
+tree_sampled = sample_models_per_region(tree, 5, 0.1)
+
+visualizeModelExistence(tree_sampled, 5)
 
 

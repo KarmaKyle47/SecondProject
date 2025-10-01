@@ -263,10 +263,10 @@ generateTree <- function(n_splits, border) {
     chosen_region_sides <- side_lengths[region_to_split_idx, ]
 
     # Sample the dimension to split along, weighted by the side lengths
-    dim_to_split <- sample.int(n = dimension, size = 1, prob = chosen_region_sides^2)
+    dim_to_split <- sample.int(n = dimension, size = 1, prob = chosen_region_sides)
 
     # Generate a random split point using a Beta distribution
-    split_perc <- rbeta(1,5,5)
+    split_perc <- rbeta(1,10,10)
     #rbeta(5,5)
 
     # Get the bounds of the chosen region along the chosen dimension
