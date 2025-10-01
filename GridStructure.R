@@ -357,4 +357,4 @@ ArgoBart::treeBorders(tree)
 plotTreeGrid(tree)
 
 split_domain(matrix(c(0,0), nrow = 1), tree)
-#
+
