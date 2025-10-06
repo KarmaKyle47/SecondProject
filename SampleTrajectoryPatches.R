@@ -38,10 +38,19 @@ samplePatch_Unrestricted = function(border, k){
 
   coef
 
+}
+samplePatch_Known_Bottom = function(border, k, bottom_coefs, bottom_border){
+
+  dx = border[3] - border[1]
+  dy = border[4] - border[2]
+
+
+
+
+
+
 
 }
-
-curPos = c(1,1)
 
 
 evaluateCubicPatchValue = function(coef, border, curPos){
@@ -59,6 +68,51 @@ evaluateCubicPatchValue = function(coef, border, curPos){
   sum(coef * polyTerms)
 
 }
+evaluateCubicPatchParX = function(coef, border, curPos){
+
+  x_0 = border[1]
+  y_0 = border[2]
+  x = curPos[1]
+  y = curPos[2]
+
+  polyTerms = c(0, 0, 1, 2*(x-x_0),
+                2*(x-x_0), 2*(x-x_0)*(y-y_0), 3*(x-x_0)^2, 3*(x-x_0)^2*(y-y_0),
+                0, 0, (y-y_0)^2, (y-y_0)^3,
+                2*(x-x_0)*(y-y_0)^2, 2*(x-x_0)*(y-y_0)^3, 3*(x-x_0)^2*(y-y_0)^2, 3*(x-x_0)^2*(y-y_0)^3)
+
+  sum(coef * polyTerms)
+}
+evaluateCubicPatchParY = function(coef, border, curPos){
+
+  x_0 = border[1]
+  y_0 = border[2]
+  x = curPos[1]
+  y = curPos[2]
+
+  polyTerms = c(0, 1, 0, 0,
+                0, (x-x_0)^2, 0, (x-x_0)^3,
+                2*(y-y_0), 3*(y-y_0)^2, 2*(x-x_0)*(y-y_0), 3*(x-x_0)*(y-y_0)^2,
+                2*(x-x_0)^2*(y-y_0), 3*(x-x_0)^2*(y-y_0)^2, 2*(x-x_0)^3*(y-y_0), 3*(x-x_0)^3*(y-y_0)^2)
+
+  sum(coef * polyTerms)
+
+
+}
+evaluateCubicPatchParXY = function(coef, border, curPos){
+
+  x_0 = border[1]
+  y_0 = border[2]
+  x = curPos[1]
+  y = curPos[2]
+
+  polyTerms = c(0, 0, 0, 0,
+                0, 2*(x-x_0), 0, 3*(x-x_0)^2,
+                0, 0, 2*(y-y_0), 3*(y-y_0)^2,
+                4*(x-x_0)*(y-y_0), 6*(x-x_0)*(y-y_0)^2, 6*(x-x_0)^2*(y-y_0), 9*(x-x_0)^2*(y-y_0)^2)
+
+  sum(coef * polyTerms)
+}
+
 
 
 test_grid = expand.grid(seq(0,2, 0.1), seq(0,3,0.1))
