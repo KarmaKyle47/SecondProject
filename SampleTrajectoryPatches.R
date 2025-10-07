@@ -1,6 +1,66 @@
 library(MASS)
 library(plotly)
 
+evaluateCubicPatchValue = function(coef, border, curPos){
+
+  x_0 = border[1]
+  y_0 = border[2]
+  x = curPos[1]
+  y = curPos[2]
+
+  polyTerms = c(1, (y-y_0), (x-x_0), (x-x_0)*(y-y_0),
+                (x-x_0)^2, (x-x_0)^2*(y-y_0), (x-x_0)^3, (x-x_0)^3*(y-y_0),
+                (y-y_0)^2, (y-y_0)^3, (x-x_0)*(y-y_0)^2, (x-x_0)*(y-y_0)^3,
+                (x-x_0)^2*(y-y_0)^2, (x-x_0)^2*(y-y_0)^3, (x-x_0)^3*(y-y_0)^2, (x-x_0)^3*(y-y_0)^3)
+
+  sum(coef * polyTerms)
+
+}
+evaluateCubicPatchParX = function(coef, border, curPos){
+
+  x_0 = border[1]
+  y_0 = border[2]
+  x = curPos[1]
+  y = curPos[2]
+
+  polyTerms = c(0, 0, 1, (y-y_0),
+                2*(x-x_0), 2*(x-x_0)*(y-y_0), 3*(x-x_0)^2, 3*(x-x_0)^2*(y-y_0),
+                0, 0, (y-y_0)^2, (y-y_0)^3,
+                2*(x-x_0)*(y-y_0)^2, 2*(x-x_0)*(y-y_0)^3, 3*(x-x_0)^2*(y-y_0)^2, 3*(x-x_0)^2*(y-y_0)^3)
+
+  sum(coef * polyTerms)
+}
+evaluateCubicPatchParY = function(coef, border, curPos){
+
+  x_0 = border[1]
+  y_0 = border[2]
+  x = curPos[1]
+  y = curPos[2]
+
+  polyTerms = c(0, 1, 0, (x-x_0),
+                0, (x-x_0)^2, 0, (x-x_0)^3,
+                2*(y-y_0), 3*(y-y_0)^2, 2*(x-x_0)*(y-y_0), 3*(x-x_0)*(y-y_0)^2,
+                2*(x-x_0)^2*(y-y_0), 3*(x-x_0)^2*(y-y_0)^2, 2*(x-x_0)^3*(y-y_0), 3*(x-x_0)^3*(y-y_0)^2)
+
+  sum(coef * polyTerms)
+
+
+}
+evaluateCubicPatchParXY = function(coef, border, curPos){
+
+  x_0 = border[1]
+  y_0 = border[2]
+  x = curPos[1]
+  y = curPos[2]
+
+  polyTerms = c(0, 0, 0, 1,
+                0, 2*(x-x_0), 0, 3*(x-x_0)^2,
+                0, 0, 2*(y-y_0), 3*(y-y_0)^2,
+                4*(x-x_0)*(y-y_0), 6*(x-x_0)*(y-y_0)^2, 6*(x-x_0)^2*(y-y_0), 9*(x-x_0)^2*(y-y_0)^2)
+
+  sum(coef * polyTerms)
+}
+
 samplePatch_Unrestricted = function(border, k){
 
   dx = border[3] - border[1]
@@ -115,15 +175,15 @@ samplePatch_Known_Left = function(border, k, left_coefs, left_border){
   c10 = evaluateCubicPatchParX(coef = left_coefs, border = left_border, curPos = c(border[1], border[2]))
   c11 = evaluateCubicPatchParXY(coef = left_coefs, border = left_border, curPos = c(border[1], border[2]))
 
-  value_BR = evaluateCubicPatchValue(coef = left_coefs, border = left_border, curPos = c(border[1], border[4]))
-  par_X_BR = evaluateCubicPatchParX(coef = left_coefs, border = left_border, curPos = c(border[1], border[4]))
-  par_Y_BR = evaluateCubicPatchParY(coef = left_coefs, border = left_border, curPos = c(border[1], border[4]))
-  par_XY_BR = evaluateCubicPatchParXY(coef = left_coefs, border = left_border, curPos = c(border[1], border[4]))
+  value_TL = evaluateCubicPatchValue(coef = left_coefs, border = left_border, curPos = c(border[1], border[4]))
+  par_X_TL = evaluateCubicPatchParX(coef = left_coefs, border = left_border, curPos = c(border[1], border[4]))
+  par_Y_TL = evaluateCubicPatchParY(coef = left_coefs, border = left_border, curPos = c(border[1], border[4]))
+  par_XY_TL = evaluateCubicPatchParXY(coef = left_coefs, border = left_border, curPos = c(border[1], border[4]))
 
-  c02 = (-1*par_Y_BR*dy + 3*value_BR - 3*c00 - 2*c01*dy)/(dy^2)
-  c12 = (-1*par_XY_BR*dy + 3*par_X_BR - 3*c10 - 2*c11*dy)/(dy^2)
-  c03 = (par_Y_BR*dy - 2*value_BR + 2*c00 + c01*dy)/(dy^3)
-  c13 = (par_XY_BR*dy - 2*par_X_BR + 2*c10 + c11*dy)/(dy^3)
+  c02 = (-1*par_Y_TL*dy + 3*value_TL - 3*c00 - 2*c01*dy)/(dy^2)
+  c12 = (-1*par_XY_TL*dy + 3*par_X_TL - 3*c10 - 2*c11*dy)/(dy^2)
+  c03 = (par_Y_TL*dy - 2*value_TL + 2*c00 + c01*dy)/(dy^3)
+  c13 = (par_XY_TL*dy - 2*par_X_TL + 2*c10 + c11*dy)/(dy^3)
 
 
   known_coefs = c(c00, c01, c10, c11, c02, c03, c12, c13)
@@ -142,67 +202,122 @@ samplePatch_Known_Left = function(border, k, left_coefs, left_border){
 
 }
 
-evaluateCubicPatchValue = function(coef, border, curPos){
+samplePatch_Known_Bottom_and_Left = function(border, k, bottom_coefs, bottom_border, left_coefs, left_border){
 
-  x_0 = border[1]
-  y_0 = border[2]
-  x = curPos[1]
-  y = curPos[2]
+  dx = border[3] - border[1]
+  dy = border[4] - border[2]
 
-  polyTerms = c(1, (y-y_0), (x-x_0), (x-x_0)*(y-y_0),
-                (x-x_0)^2, (x-x_0)^2*(y-y_0), (x-x_0)^3, (x-x_0)^3*(y-y_0),
-                (y-y_0)^2, (y-y_0)^3, (x-x_0)*(y-y_0)^2, (x-x_0)*(y-y_0)^3,
-                (x-x_0)^2*(y-y_0)^2, (x-x_0)^2*(y-y_0)^3, (x-x_0)^3*(y-y_0)^2, (x-x_0)^3*(y-y_0)^3)
+  A = matrix(c(1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+               0,0,dx,0,dx^2,0,dx^3,0,0,0,0,0,0,0,0,0,
+               0,dy,0,0,0,0,0,0,dy^2,dy^3,0,0,0,0,0,0,
+               0,0,0,dx*dy,0,dx^2*dy,0,dx^3*dy,0,0,dx*dy^2,dx*dy^3,dx^2*dy^2,dx^2*dy^3,dx^3*dy^2,dx^3*dy^3,
+               0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,
+               0,0,1,0,2*dx,0,3*dx^2,0,0,0,0,0,0,0,0,0,
+               0,0,1,dy,0,0,0,0,0,0,dy^2,dy^3,0,0,0,0,
+               0,0,1,dy,2*dx,2*dx*dy,3*dx^2,3*dx^2*dy,0,0,dy^2,dy^3,2*dx*dy^2,2*dx*dy^3,3*dx^2*dy^2,3*dx^2*dy^3,
+               0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+               0,1,0,dx,0,dx^2,0,dx^3,0,0,0,0,0,0,0,0,
+               0,1,0,0,0,0,0,0,2*dy,3*dy^2,0,0,0,0,0,0,
+               0,1,0,dx,0,dx^2,0,dx^3,2*dy,3*dy^2,2*dx*dy,3*dx*dy^2,2*dx^2*dy,3*dx^2*dy^2,2*dx^3*dy,3*dx^3*dy^2,
+               0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,
+               0,0,0,1,0,2*dx,0,3*dx^2,0,0,0,0,0,0,0,0,
+               0,0,0,1,0,0,0,0,0,0,2*dy,3*dy^2,0,0,0,0,
+               0,0,0,1,0,2*dx,0,3*dx^2,0,0,2*dy,3*dy^2,4*dx*dy,6*dx*dy^2,6*dx^2*dy,9*dx^2*dy^2), nrow = 16, ncol = 16, byrow = T)
 
-  sum(coef * polyTerms)
+  c00 = evaluateCubicPatchValue(coef = bottom_coefs, border = bottom_border, curPos = c(border[1], border[2]))
+  c01 = evaluateCubicPatchParY(coef = bottom_coefs, border = bottom_border, curPos = c(border[1], border[2]))
+  c10 = evaluateCubicPatchParX(coef = bottom_coefs, border = bottom_border, curPos = c(border[1], border[2]))
+  c11 = evaluateCubicPatchParXY(coef = bottom_coefs, border = bottom_border, curPos = c(border[1], border[2]))
+
+  value_BR = evaluateCubicPatchValue(coef = bottom_coefs, border = bottom_border, curPos = c(border[3], border[2]))
+  par_X_BR = evaluateCubicPatchParX(coef = bottom_coefs, border = bottom_border, curPos = c(border[3], border[2]))
+  par_Y_BR = evaluateCubicPatchParY(coef = bottom_coefs, border = bottom_border, curPos = c(border[3], border[2]))
+  par_XY_BR = evaluateCubicPatchParXY(coef = bottom_coefs, border = bottom_border, curPos = c(border[3], border[2]))
+
+  c20 = (-1*par_X_BR*dx + 3*value_BR - 3*c00 - 2*c10*dx)/(dx^2)
+  c21 = (-1*par_XY_BR*dx + 3*par_Y_BR - 3*c01 - 2*c11*dx)/(dx^2)
+  c30 = (par_X_BR*dx - 2*value_BR + 2*c00 + c10*dx)/(dx^3)
+  c31 = (par_XY_BR*dx - 2*par_Y_BR + 2*c01 + c11*dx)/(dx^3)
+
+  value_TL = evaluateCubicPatchValue(coef = left_coefs, border = left_border, curPos = c(border[1], border[4]))
+  par_X_TL = evaluateCubicPatchParX(coef = left_coefs, border = left_border, curPos = c(border[1], border[4]))
+  par_Y_TL = evaluateCubicPatchParY(coef = left_coefs, border = left_border, curPos = c(border[1], border[4]))
+  par_XY_TL = evaluateCubicPatchParXY(coef = left_coefs, border = left_border, curPos = c(border[1], border[4]))
+
+  c02 = (-1*par_Y_TL*dy + 3*value_TL - 3*c00 - 2*c01*dy)/(dy^2)
+  c12 = (-1*par_XY_TL*dy + 3*par_X_TL - 3*c10 - 2*c11*dy)/(dy^2)
+  c03 = (par_Y_TL*dy - 2*value_TL + 2*c00 + c01*dy)/(dy^3)
+  c13 = (par_XY_TL*dy - 2*par_X_TL + 2*c10 + c11*dy)/(dy^3)
+
+  known_coefs = c(c00, c01, c10, c11, c20, c21, c30, c31, c02, c03, c12, c13)
+
+  mu_trans = -1*(A[c(4,8,12,16), 1:12] %*% known_coefs)
+
+  A_inv = solve(A[c(4,8,12,16), 13:16])
+
+  mu = A_inv %*% mu_trans
+  sigma = k^2*(A_inv %*% t(A_inv))
+
+  coef = mvrnorm(mu = mu, Sigma = sigma)
+
+  c(known_coefs, coef)
+
 
 }
-evaluateCubicPatchParX = function(coef, border, curPos){
 
-  x_0 = border[1]
-  y_0 = border[2]
-  x = curPos[1]
-  y = curPos[2]
+samplePatch_Known_Corners = function(border, k, bottom_coefs, bottom_border, left_coefs, left_border, up_or_right_coefs, up_or_right_border){
 
-  polyTerms = c(0, 0, 1, (y-y_0),
-                2*(x-x_0), 2*(x-x_0)*(y-y_0), 3*(x-x_0)^2, 3*(x-x_0)^2*(y-y_0),
-                0, 0, (y-y_0)^2, (y-y_0)^3,
-                2*(x-x_0)*(y-y_0)^2, 2*(x-x_0)*(y-y_0)^3, 3*(x-x_0)^2*(y-y_0)^2, 3*(x-x_0)^2*(y-y_0)^3)
+  dx = border[3] - border[1]
+  dy = border[4] - border[2]
 
-  sum(coef * polyTerms)
+  c00 = evaluateCubicPatchValue(coef = bottom_coefs, border = bottom_border, curPos = c(border[1], border[2]))
+  c01 = evaluateCubicPatchParY(coef = bottom_coefs, border = bottom_border, curPos = c(border[1], border[2]))
+  c10 = evaluateCubicPatchParX(coef = bottom_coefs, border = bottom_border, curPos = c(border[1], border[2]))
+  c11 = evaluateCubicPatchParXY(coef = bottom_coefs, border = bottom_border, curPos = c(border[1], border[2]))
+
+  value_BR = evaluateCubicPatchValue(coef = bottom_coefs, border = bottom_border, curPos = c(border[3], border[2]))
+  par_X_BR = evaluateCubicPatchParX(coef = bottom_coefs, border = bottom_border, curPos = c(border[3], border[2]))
+  par_Y_BR = evaluateCubicPatchParY(coef = bottom_coefs, border = bottom_border, curPos = c(border[3], border[2]))
+  par_XY_BR = evaluateCubicPatchParXY(coef = bottom_coefs, border = bottom_border, curPos = c(border[3], border[2]))
+
+  c20 = (-1*par_X_BR*dx + 3*value_BR - 3*c00 - 2*c10*dx)/(dx^2)
+  c21 = (-1*par_XY_BR*dx + 3*par_Y_BR - 3*c01 - 2*c11*dx)/(dx^2)
+  c30 = (par_X_BR*dx - 2*value_BR + 2*c00 + c10*dx)/(dx^3)
+  c31 = (par_XY_BR*dx - 2*par_Y_BR + 2*c01 + c11*dx)/(dx^3)
+
+  value_TL = evaluateCubicPatchValue(coef = left_coefs, border = left_border, curPos = c(border[1], border[4]))
+  par_X_TL = evaluateCubicPatchParX(coef = left_coefs, border = left_border, curPos = c(border[1], border[4]))
+  par_Y_TL = evaluateCubicPatchParY(coef = left_coefs, border = left_border, curPos = c(border[1], border[4]))
+  par_XY_TL = evaluateCubicPatchParXY(coef = left_coefs, border = left_border, curPos = c(border[1], border[4]))
+
+  c02 = (-1*par_Y_TL*dy + 3*value_TL - 3*c00 - 2*c01*dy)/(dy^2)
+  c12 = (-1*par_XY_TL*dy + 3*par_X_TL - 3*c10 - 2*c11*dy)/(dy^2)
+  c03 = (par_Y_TL*dy - 2*value_TL + 2*c00 + c01*dy)/(dy^3)
+  c13 = (par_XY_TL*dy - 2*par_X_TL + 2*c10 + c11*dy)/(dy^3)
+
+  value_TR = evaluateCubicPatchValue(coef = up_or_right_coefs, border = up_or_right_border, curPos = c(border[3], border[4]))
+  par_X_TR = evaluateCubicPatchParX(coef = up_or_right_coefs, border = up_or_right_border, curPos = c(border[3], border[4]))
+  par_Y_TR = evaluateCubicPatchParY(coef = up_or_right_coefs, border = up_or_right_border, curPos = c(border[3], border[4]))
+  par_XY_TR = evaluateCubicPatchParXY(coef = up_or_right_coefs, border = up_or_right_border, curPos = c(border[3], border[4]))
+
+  temp_coefs = c(c00, c01, c10, c11, c20, c21, c30, c31, c02, c03, c12, c13, 0, 0, 0, 0)
+
+  Cz = evaluateCubicPatchValue(coef = temp_coefs, border = border, curPos = c(border[3], border[4]))
+  Cx = evaluateCubicPatchParX(coef = temp_coefs, border = border, curPos = c(border[3], border[4]))
+  Cy = evaluateCubicPatchParY(coef = temp_coefs, border = border, curPos = c(border[3], border[4]))
+  Cxy = evaluateCubicPatchParXY(coef = temp_coefs, border = border, curPos = c(border[3], border[4]))
+
+  c22 = ((par_XY_TR - Cxy)*dx*dy - 3*(par_Y_TR - Cy)*dy - 3*(par_X_TR - Cx)*dx + 18*(value_TR - Cz))/(10*dx^2*dy^2)
+  c23 = (-1*(par_XY_TR - Cxy)*dx*dy + 3*(par_Y_TR - Cy)*dy + 2*(par_X_TR - Cx)*dx - 6*(value_TR - Cz))/(10*dx^2*dy^3)
+  c32 = (-1*(par_XY_TR - Cxy)*dx*dy + 2*(par_Y_TR - Cy)*dy + 3*(par_X_TR - Cx)*dx - 6*(value_TR - Cz))/(10*dx^3*dy^2)
+  c33 = ((par_XY_TR - Cxy)*dx*dy - 2*(par_Y_TR - Cy)*dy - 2*(par_X_TR - Cx)*dx + 4*(value_TR - Cz))/(10*dx^3*dy^3)
+
+
+  known_coefs = c(c00, c01, c10, c11, c20, c21, c30, c31, c02, c03, c12, c13, c22, c23, c32, c33)
+
+  known_coefs
+
 }
-evaluateCubicPatchParY = function(coef, border, curPos){
-
-  x_0 = border[1]
-  y_0 = border[2]
-  x = curPos[1]
-  y = curPos[2]
-
-  polyTerms = c(0, 1, 0, (x-x_0),
-                0, (x-x_0)^2, 0, (x-x_0)^3,
-                2*(y-y_0), 3*(y-y_0)^2, 2*(x-x_0)*(y-y_0), 3*(x-x_0)*(y-y_0)^2,
-                2*(x-x_0)^2*(y-y_0), 3*(x-x_0)^2*(y-y_0)^2, 2*(x-x_0)^3*(y-y_0), 3*(x-x_0)^3*(y-y_0)^2)
-
-  sum(coef * polyTerms)
-
-
-}
-evaluateCubicPatchParXY = function(coef, border, curPos){
-
-  x_0 = border[1]
-  y_0 = border[2]
-  x = curPos[1]
-  y = curPos[2]
-
-  polyTerms = c(0, 0, 0, 1,
-                0, 2*(x-x_0), 0, 3*(x-x_0)^2,
-                0, 0, 2*(y-y_0), 3*(y-y_0)^2,
-                4*(x-x_0)*(y-y_0), 6*(x-x_0)*(y-y_0)^2, 6*(x-x_0)^2*(y-y_0), 9*(x-x_0)^2*(y-y_0)^2)
-
-  sum(coef * polyTerms)
-}
-
-border_init = c(0,0,2,3)
 
 init_coef = samplePatch_Unrestricted(border_init, 0.5)
 
@@ -297,6 +412,69 @@ plot_ly(PlottingGrid_Combined, x = ~X, y = ~Y, z = ~Value, type = "scatter3d", m
 
 
 
+## Test Patches
 
+border1 = c(0,0,5,1)
+border2 = c(0,1,2,5)
+border3 = c(2,1,5,3)
+border3.5 = c(2,1,4,3)
+border4 = c(4,1,5,3)
+border5 = c(2,3,5,5)
+
+
+
+coef1 = samplePatch_Unrestricted(border1, 0.2)
+coef2 = samplePatch_Known_Bottom(border2, 0.2, coef1, border1)
+coef3 = samplePatch_Known_Bottom_and_Left(border3, 0.2, coef1, border1, coef2, border2)
+coef5 = samplePatch_Known_Bottom_and_Left(border5, 0.2, coef3, border3, coef2, border2)
+
+coef3.5 = samplePatch_Known_Corners(border3.5, k = 0.2, coef1, border1, coef2, border2, coef5, border5)
+coef4 = samplePatch_Known_Corners(border4, k = 0.2, coef1, border1, coef3.5, border3.5, coef5, border5)
+
+grid_size = 0.1
+
+grid1 = expand.grid(seq(border1[1],border1[3], grid_size), seq(border1[2],border1[4], grid_size))
+grid2 = expand.grid(seq(border2[1],border2[3], grid_size), seq(border2[2],border2[4], grid_size))
+grid3 = expand.grid(seq(border3[1],border3[3], grid_size), seq(border3[2],border3[4], grid_size))
+grid5 = expand.grid(seq(border5[1],border5[3], grid_size), seq(border5[2],border5[4], grid_size))
+
+grid3.5 = expand.grid(seq(border3.5[1],border3.5[3], grid_size), seq(border3.5[2],border3.5[4], grid_size))
+grid4 = expand.grid(seq(border4[1],border4[3], grid_size), seq(border4[2],border4[4], grid_size))
+
+PatchValues1 = apply(grid1, 1, FUN = evaluateCubicPatchValue, coef = coef1, border = border1)
+PatchValues2 = apply(grid2, 1, FUN = evaluateCubicPatchValue, coef = coef2, border = border2)
+PatchValues3 = apply(grid3, 1, FUN = evaluateCubicPatchValue, coef = coef3, border = border3)
+PatchValues5 = apply(grid5, 1, FUN = evaluateCubicPatchValue, coef = coef5, border = border5)
+
+PatchValues3.5 = apply(grid3.5, 1, FUN = evaluateCubicPatchValue, coef = coef3.5, border = border3.5)
+PatchValues4 = apply(grid4, 1, FUN = evaluateCubicPatchValue, coef = coef4, border = border4)
+
+plottingGrid = data.frame(rbind(grid1, grid2,grid3,grid5), c(PatchValues1, PatchValues2, PatchValues3, PatchValues5))
+plottingGrid_2 = data.frame(rbind(grid1, grid2, grid3.5, grid4,grid5), c(PatchValues1, PatchValues2, PatchValues3.5, PatchValues4, PatchValues5))
+
+names(plottingGrid) = c('X','Y','Value')
+names(plottingGrid_2) = c('X','Y','Value')
+
+duplicate_rows <- duplicated(round(plottingGrid[,c(1,2)],1))
+duplicate_rows2 <- duplicated(round(plottingGrid_2[,c(1,2)],1))
+
+plottingGrid = plottingGrid[!duplicate_rows,]
+plottingGrid_2 = plottingGrid_2[!duplicate_rows2,]
+
+plot_ly(plottingGrid, x = ~X, y = ~Y, z = ~Value, type = "scatter3d", mode = "markers")
+plot_ly(plottingGrid_2, x = ~X, y = ~Y, z = ~Value, type = "scatter3d", mode = "markers")
+
+
+Value <- xtabs(Value ~ X+Y, data = plottingGrid)
+X <- as.numeric(rownames(Value))
+Y <- as.numeric(colnames(Value))
+
+Value2 <- xtabs(Value ~ X+Y, data = plottingGrid_2)
+X2 <- as.numeric(rownames(Value2))
+Y2 <- as.numeric(colnames(Value2))
+
+plot_ly(x = ~X2, y = ~Y2, z = ~Value2, type = "surface")
+
+mean(plottingGrid == plottingGrid_2)
 
 
