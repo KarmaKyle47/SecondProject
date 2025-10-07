@@ -193,8 +193,6 @@ calculate_tree_energy = function(sampledTree, self_penalty = 10000, temperature 
 
 }
 
-
-
 visualizeModelExistence = function(sampledTree, model){
 
   ShadeData = data.frame(xmin = sampledTree$L1,

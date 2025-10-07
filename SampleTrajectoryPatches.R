@@ -307,10 +307,12 @@ samplePatch_Known_Corners = function(border, k, bottom_coefs, bottom_border, lef
   Cy = evaluateCubicPatchParY(coef = temp_coefs, border = border, curPos = c(border[3], border[4]))
   Cxy = evaluateCubicPatchParXY(coef = temp_coefs, border = border, curPos = c(border[3], border[4]))
 
-  c22 = ((par_XY_TR - Cxy)*dx*dy - 3*(par_Y_TR - Cy)*dy - 3*(par_X_TR - Cx)*dx + 18*(value_TR - Cz))/(10*dx^2*dy^2)
-  c23 = (-1*(par_XY_TR - Cxy)*dx*dy + 3*(par_Y_TR - Cy)*dy + 2*(par_X_TR - Cx)*dx - 6*(value_TR - Cz))/(10*dx^2*dy^3)
-  c32 = (-1*(par_XY_TR - Cxy)*dx*dy + 2*(par_Y_TR - Cy)*dy + 3*(par_X_TR - Cx)*dx - 6*(value_TR - Cz))/(10*dx^3*dy^2)
-  c33 = ((par_XY_TR - Cxy)*dx*dy - 2*(par_Y_TR - Cy)*dy - 2*(par_X_TR - Cx)*dx + 4*(value_TR - Cz))/(10*dx^3*dy^3)
+  #Sign Errors
+
+  c22 = ((par_XY_TR - Cxy)*dx*dy - 3*(par_Y_TR - Cy)*dy - 3*(par_X_TR - Cx)*dx + 9*(value_TR - Cz))/(dx^2*dy^2)
+  c23 = (-1*(par_XY_TR - Cxy)*dx*dy + 3*(par_Y_TR - Cy)*dy + 2*(par_X_TR - Cx)*dx - 6*(value_TR - Cz))/(dx^2*dy^3)
+  c32 = (-1*(par_XY_TR - Cxy)*dx*dy + 2*(par_Y_TR - Cy)*dy + 3*(par_X_TR - Cx)*dx - 6*(value_TR - Cz))/(dx^3*dy^2)
+  c33 = ((par_XY_TR - Cxy)*dx*dy - 2*(par_Y_TR - Cy)*dy - 2*(par_X_TR - Cx)*dx + 4*(value_TR - Cz))/(dx^3*dy^3)
 
 
   known_coefs = c(c00, c01, c10, c11, c20, c21, c30, c31, c02, c03, c12, c13, c22, c23, c32, c33)
@@ -449,21 +451,30 @@ PatchValues5 = apply(grid5, 1, FUN = evaluateCubicPatchValue, coef = coef5, bord
 PatchValues3.5 = apply(grid3.5, 1, FUN = evaluateCubicPatchValue, coef = coef3.5, border = border3.5)
 PatchValues4 = apply(grid4, 1, FUN = evaluateCubicPatchValue, coef = coef4, border = border4)
 
-plottingGrid = data.frame(rbind(grid1, grid2,grid3,grid5), c(PatchValues1, PatchValues2, PatchValues3, PatchValues5))
-plottingGrid_2 = data.frame(rbind(grid1, grid2, grid3.5, grid4,grid5), c(PatchValues1, PatchValues2, PatchValues3.5, PatchValues4, PatchValues5))
+plottingGrid = data.frame(round(rbind(grid1, grid2,grid3,grid5), 1), c(PatchValues1, PatchValues2, PatchValues3, PatchValues5))
+plottingGrid_2 = data.frame(round(rbind(grid1, grid2, grid3.5, grid4,grid5),1), c(PatchValues1, PatchValues2, PatchValues3.5, PatchValues4, PatchValues5))
 
 names(plottingGrid) = c('X','Y','Value')
 names(plottingGrid_2) = c('X','Y','Value')
 
-duplicate_rows <- duplicated(round(plottingGrid[,c(1,2)],1))
-duplicate_rows2 <- duplicated(round(plottingGrid_2[,c(1,2)],1))
+duplicate_rows <- duplicated(plottingGrid[,c(1,2)])
+duplicate_rows2 <- duplicated(plottingGrid_2[,c(1,2)])
 
 plottingGrid = plottingGrid[!duplicate_rows,]
 plottingGrid_2 = plottingGrid_2[!duplicate_rows2,]
 
 plot_ly(plottingGrid, x = ~X, y = ~Y, z = ~Value, type = "scatter3d", mode = "markers")
 plot_ly(plottingGrid_2, x = ~X, y = ~Y, z = ~Value, type = "scatter3d", mode = "markers")
+plot_ly(plottingGrid_Compare, x = ~X, y = ~Y, z = ~Value, type = "scatter3d", mode = "markers")
 
+
+mean(abs(plottingGrid[order(plottingGrid$X, plottingGrid$Y),]$Value - plottingGrid_2[order(plottingGrid_2$X, plottingGrid_2$Y),]$Value) < 0.1)
+
+plottingGrid_Sorted = plottingGrid[order(plottingGrid$X, plottingGrid$Y),]
+plottingGrid_Sorted2 = plottingGrid_2[order(plottingGrid_2$X, plottingGrid_2$Y),]
+
+plottingGrid_Compare = plottingGrid_Sorted
+plottingGrid_Compare$Value = plottingGrid_Sorted$Value - plottingGrid_Sorted2$Value
 
 Value <- xtabs(Value ~ X+Y, data = plottingGrid)
 X <- as.numeric(rownames(Value))
@@ -473,6 +484,7 @@ Value2 <- xtabs(Value ~ X+Y, data = plottingGrid_2)
 X2 <- as.numeric(rownames(Value2))
 Y2 <- as.numeric(colnames(Value2))
 
+plot_ly(x = ~X, y = ~Y, z = ~Value, type = "surface")
 plot_ly(x = ~X2, y = ~Y2, z = ~Value2, type = "surface")
 
 mean(plottingGrid == plottingGrid_2)
