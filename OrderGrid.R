@@ -176,7 +176,7 @@ orderBoundaries = function(tree){
 
 }
 
-orderBoundaries_GeminiCleaned <- function(tree) {
+orderBoundaries_GeminiCleaned <- function(tree, plot = T) {
 
   treeBoundaries <- treeBorders(tree)
   treeBoundaries$order <- 0
@@ -290,19 +290,29 @@ orderBoundaries_GeminiCleaned <- function(tree) {
   } # End of main for-loop
 
   # 3. Plotting (unchanged)
-  plot_noLabels <- plotTreeGrid(tree)
-  plot_wLabels <- plot_noLabels + geom_text(
-    data = treeBoundaries,
-    aes(
-      x = (L1 + U1) / 2,
-      y = (L2 + U2) / 2,
-      label = order
-    ),
-    color = "black",
-    size = 2
-  )
 
-  list(treeBoundaries, plot_wLabels)
+  if(plot){
+
+    plot_noLabels <- plotTreeGrid(tree)
+    plot_wLabels <- plot_noLabels + geom_text(
+      data = treeBoundaries,
+      aes(
+        x = (L1 + U1) / 2,
+        y = (L2 + U2) / 2,
+        label = order
+      ),
+      color = "black",
+      size = 2
+    )
+
+    list(treeBoundaries, plot_wLabels)
+
+  } else{
+
+    treeBoundaries
+
+  }
+
 }
 
 

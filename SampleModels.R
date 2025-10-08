@@ -1,4 +1,4 @@
-find_neighbors <- function(all_boundaries, index) {
+find_neighbors <- function(all_boundaries, index, sep = F) {
 
   # Coordinates of the current boundary
   b <- all_boundaries[index, ]
@@ -31,7 +31,18 @@ find_neighbors <- function(all_boundaries, index) {
   all_neighbors = c(right_neighbors, left_neighbors, up_neighbors, down_neighbors)
   all_edges = c(right_edges, left_edges, up_edges, down_edges)
 
-  return(cbind(all_neighbors, all_edges))
+  if(sep){
+
+    return(list(Right = cbind(right_neighbors, right_edges),
+                Left = cbind(left_neighbors, left_edges),
+                Up = cbind(up_neighbors, up_edges),
+                Down = cbind(down_neighbors, down_edges)))
+
+  } else{
+    return(cbind(all_neighbors, all_edges))
+  }
+
+
 }
 
 sample_models_one_pass = function(tree, num_models, baseWeight = 0.1){

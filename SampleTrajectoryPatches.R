@@ -95,7 +95,7 @@ samplePatch_Unrestricted = function(border, k){
 
 }
 
-samplePatch_Known_Bottom = function(border, k, bottom_coefs, bottom_border){
+samplePatch_Known_Bottom = function(border, k, BL_coefs, BL_border, BR_coefs, BR_border){
 
   dx = border[3] - border[1]
   dy = border[4] - border[2]
@@ -117,15 +117,15 @@ samplePatch_Known_Bottom = function(border, k, bottom_coefs, bottom_border){
                0,0,0,1,0,0,0,0,0,0,2*dy,3*dy^2,0,0,0,0,
                0,0,0,1,0,2*dx,0,3*dx^2,0,0,2*dy,3*dy^2,4*dx*dy,6*dx*dy^2,6*dx^2*dy,9*dx^2*dy^2), nrow = 16, ncol = 16, byrow = T)
 
-  c00 = evaluateCubicPatchValue(coef = bottom_coefs, border = bottom_border, curPos = c(border[1], border[2]))
-  c01 = evaluateCubicPatchParY(coef = bottom_coefs, border = bottom_border, curPos = c(border[1], border[2]))
-  c10 = evaluateCubicPatchParX(coef = bottom_coefs, border = bottom_border, curPos = c(border[1], border[2]))
-  c11 = evaluateCubicPatchParXY(coef = bottom_coefs, border = bottom_border, curPos = c(border[1], border[2]))
+  c00 = evaluateCubicPatchValue(coef = BL_coefs, border = BL_border, curPos = c(border[1], border[2]))
+  c01 = evaluateCubicPatchParY(coef = BL_coefs, border = BL_border, curPos = c(border[1], border[2]))
+  c10 = evaluateCubicPatchParX(coef = BL_coefs, border = BL_border, curPos = c(border[1], border[2]))
+  c11 = evaluateCubicPatchParXY(coef = BL_coefs, border = BL_border, curPos = c(border[1], border[2]))
 
-  value_BR = evaluateCubicPatchValue(coef = bottom_coefs, border = bottom_border, curPos = c(border[3], border[2]))
-  par_X_BR = evaluateCubicPatchParX(coef = bottom_coefs, border = bottom_border, curPos = c(border[3], border[2]))
-  par_Y_BR = evaluateCubicPatchParY(coef = bottom_coefs, border = bottom_border, curPos = c(border[3], border[2]))
-  par_XY_BR = evaluateCubicPatchParXY(coef = bottom_coefs, border = bottom_border, curPos = c(border[3], border[2]))
+  value_BR = evaluateCubicPatchValue(coef = BR_coefs, border = BR_border, curPos = c(border[3], border[2]))
+  par_X_BR = evaluateCubicPatchParX(coef = BR_coefs, border = BR_border, curPos = c(border[3], border[2]))
+  par_Y_BR = evaluateCubicPatchParY(coef = BR_coefs, border = BR_border, curPos = c(border[3], border[2]))
+  par_XY_BR = evaluateCubicPatchParXY(coef = BR_coefs, border = BR_border, curPos = c(border[3], border[2]))
 
   c20 = (-1*par_X_BR*dx + 3*value_BR - 3*c00 - 2*c10*dx)/(dx^2)
   c21 = (-1*par_XY_BR*dx + 3*par_Y_BR - 3*c01 - 2*c11*dx)/(dx^2)
@@ -148,7 +148,7 @@ samplePatch_Known_Bottom = function(border, k, bottom_coefs, bottom_border){
 
 }
 
-samplePatch_Known_Left = function(border, k, left_coefs, left_border){
+samplePatch_Known_Left = function(border, k, BL_coefs, BL_border, TL_coefs, TL_border){
 
   dx = border[3] - border[1]
   dy = border[4] - border[2]
@@ -170,15 +170,15 @@ samplePatch_Known_Left = function(border, k, left_coefs, left_border){
                0,0,0,1,0,0,0,0,0,0,2*dy,3*dy^2,0,0,0,0,
                0,0,0,1,0,2*dx,0,3*dx^2,0,0,2*dy,3*dy^2,4*dx*dy,6*dx*dy^2,6*dx^2*dy,9*dx^2*dy^2), nrow = 16, ncol = 16, byrow = T)
 
-  c00 = evaluateCubicPatchValue(coef = left_coefs, border = left_border, curPos = c(border[1], border[2]))
-  c01 = evaluateCubicPatchParY(coef = left_coefs, border = left_border, curPos = c(border[1], border[2]))
-  c10 = evaluateCubicPatchParX(coef = left_coefs, border = left_border, curPos = c(border[1], border[2]))
-  c11 = evaluateCubicPatchParXY(coef = left_coefs, border = left_border, curPos = c(border[1], border[2]))
+  c00 = evaluateCubicPatchValue(coef = BL_coefs, border = BL_border, curPos = c(border[1], border[2]))
+  c01 = evaluateCubicPatchParY(coef = BL_coefs, border = BL_border, curPos = c(border[1], border[2]))
+  c10 = evaluateCubicPatchParX(coef = BL_coefs, border = BL_border, curPos = c(border[1], border[2]))
+  c11 = evaluateCubicPatchParXY(coef = BL_coefs, border = BL_border, curPos = c(border[1], border[2]))
 
-  value_TL = evaluateCubicPatchValue(coef = left_coefs, border = left_border, curPos = c(border[1], border[4]))
-  par_X_TL = evaluateCubicPatchParX(coef = left_coefs, border = left_border, curPos = c(border[1], border[4]))
-  par_Y_TL = evaluateCubicPatchParY(coef = left_coefs, border = left_border, curPos = c(border[1], border[4]))
-  par_XY_TL = evaluateCubicPatchParXY(coef = left_coefs, border = left_border, curPos = c(border[1], border[4]))
+  value_TL = evaluateCubicPatchValue(coef = TL_coefs, border = TL_border, curPos = c(border[1], border[4]))
+  par_X_TL = evaluateCubicPatchParX(coef = TL_coefs, border = TL_border, curPos = c(border[1], border[4]))
+  par_Y_TL = evaluateCubicPatchParY(coef = TL_coefs, border = TL_border, curPos = c(border[1], border[4]))
+  par_XY_TL = evaluateCubicPatchParXY(coef = TL_coefs, border = TL_border, curPos = c(border[1], border[4]))
 
   c02 = (-1*par_Y_TL*dy + 3*value_TL - 3*c00 - 2*c01*dy)/(dy^2)
   c12 = (-1*par_XY_TL*dy + 3*par_X_TL - 3*c10 - 2*c11*dy)/(dy^2)
@@ -202,7 +202,7 @@ samplePatch_Known_Left = function(border, k, left_coefs, left_border){
 
 }
 
-samplePatch_Known_Bottom_and_Left = function(border, k, bottom_coefs, bottom_border, left_coefs, left_border){
+samplePatch_Known_Bottom_and_Left = function(border, k, BL_coefs, BL_border, BR_coefs, BR_border, TL_coefs, TL_border){
 
   dx = border[3] - border[1]
   dy = border[4] - border[2]
@@ -224,25 +224,25 @@ samplePatch_Known_Bottom_and_Left = function(border, k, bottom_coefs, bottom_bor
                0,0,0,1,0,0,0,0,0,0,2*dy,3*dy^2,0,0,0,0,
                0,0,0,1,0,2*dx,0,3*dx^2,0,0,2*dy,3*dy^2,4*dx*dy,6*dx*dy^2,6*dx^2*dy,9*dx^2*dy^2), nrow = 16, ncol = 16, byrow = T)
 
-  c00 = evaluateCubicPatchValue(coef = bottom_coefs, border = bottom_border, curPos = c(border[1], border[2]))
-  c01 = evaluateCubicPatchParY(coef = bottom_coefs, border = bottom_border, curPos = c(border[1], border[2]))
-  c10 = evaluateCubicPatchParX(coef = bottom_coefs, border = bottom_border, curPos = c(border[1], border[2]))
-  c11 = evaluateCubicPatchParXY(coef = bottom_coefs, border = bottom_border, curPos = c(border[1], border[2]))
+  c00 = evaluateCubicPatchValue(coef = BL_coefs, border = BL_border, curPos = c(border[1], border[2]))
+  c01 = evaluateCubicPatchParY(coef = BL_coefs, border = BL_border, curPos = c(border[1], border[2]))
+  c10 = evaluateCubicPatchParX(coef = BL_coefs, border = BL_border, curPos = c(border[1], border[2]))
+  c11 = evaluateCubicPatchParXY(coef = BL_coefs, border = BL_border, curPos = c(border[1], border[2]))
 
-  value_BR = evaluateCubicPatchValue(coef = bottom_coefs, border = bottom_border, curPos = c(border[3], border[2]))
-  par_X_BR = evaluateCubicPatchParX(coef = bottom_coefs, border = bottom_border, curPos = c(border[3], border[2]))
-  par_Y_BR = evaluateCubicPatchParY(coef = bottom_coefs, border = bottom_border, curPos = c(border[3], border[2]))
-  par_XY_BR = evaluateCubicPatchParXY(coef = bottom_coefs, border = bottom_border, curPos = c(border[3], border[2]))
+  value_BR = evaluateCubicPatchValue(coef = BR_coefs, border = BR_border, curPos = c(border[3], border[2]))
+  par_X_BR = evaluateCubicPatchParX(coef = BR_coefs, border = BR_border, curPos = c(border[3], border[2]))
+  par_Y_BR = evaluateCubicPatchParY(coef = BR_coefs, border = BR_border, curPos = c(border[3], border[2]))
+  par_XY_BR = evaluateCubicPatchParXY(coef = BR_coefs, border = BR_border, curPos = c(border[3], border[2]))
 
   c20 = (-1*par_X_BR*dx + 3*value_BR - 3*c00 - 2*c10*dx)/(dx^2)
   c21 = (-1*par_XY_BR*dx + 3*par_Y_BR - 3*c01 - 2*c11*dx)/(dx^2)
   c30 = (par_X_BR*dx - 2*value_BR + 2*c00 + c10*dx)/(dx^3)
   c31 = (par_XY_BR*dx - 2*par_Y_BR + 2*c01 + c11*dx)/(dx^3)
 
-  value_TL = evaluateCubicPatchValue(coef = left_coefs, border = left_border, curPos = c(border[1], border[4]))
-  par_X_TL = evaluateCubicPatchParX(coef = left_coefs, border = left_border, curPos = c(border[1], border[4]))
-  par_Y_TL = evaluateCubicPatchParY(coef = left_coefs, border = left_border, curPos = c(border[1], border[4]))
-  par_XY_TL = evaluateCubicPatchParXY(coef = left_coefs, border = left_border, curPos = c(border[1], border[4]))
+  value_TL = evaluateCubicPatchValue(coef = TL_coefs, border = TL_border, curPos = c(border[1], border[4]))
+  par_X_TL = evaluateCubicPatchParX(coef = TL_coefs, border = TL_border, curPos = c(border[1], border[4]))
+  par_Y_TL = evaluateCubicPatchParY(coef = TL_coefs, border = TL_border, curPos = c(border[1], border[4]))
+  par_XY_TL = evaluateCubicPatchParXY(coef = TL_coefs, border = TL_border, curPos = c(border[1], border[4]))
 
   c02 = (-1*par_Y_TL*dy + 3*value_TL - 3*c00 - 2*c01*dy)/(dy^2)
   c12 = (-1*par_XY_TL*dy + 3*par_X_TL - 3*c10 - 2*c11*dy)/(dy^2)
@@ -265,40 +265,40 @@ samplePatch_Known_Bottom_and_Left = function(border, k, bottom_coefs, bottom_bor
 
 }
 
-samplePatch_Known_Corners = function(border, k, bottom_coefs, bottom_border, left_coefs, left_border, up_or_right_coefs, up_or_right_border){
+samplePatch_Known_Corners = function(border, k, BL_coefs, BL_border, BR_coefs, BR_border, TL_coefs, TL_border, TR_coefs, TR_border){
 
   dx = border[3] - border[1]
   dy = border[4] - border[2]
 
-  c00 = evaluateCubicPatchValue(coef = bottom_coefs, border = bottom_border, curPos = c(border[1], border[2]))
-  c01 = evaluateCubicPatchParY(coef = bottom_coefs, border = bottom_border, curPos = c(border[1], border[2]))
-  c10 = evaluateCubicPatchParX(coef = bottom_coefs, border = bottom_border, curPos = c(border[1], border[2]))
-  c11 = evaluateCubicPatchParXY(coef = bottom_coefs, border = bottom_border, curPos = c(border[1], border[2]))
+  c00 = evaluateCubicPatchValue(coef = BL_coefs, border = BL_border, curPos = c(border[1], border[2]))
+  c01 = evaluateCubicPatchParY(coef = BL_coefs, border = BL_border, curPos = c(border[1], border[2]))
+  c10 = evaluateCubicPatchParX(coef = BL_coefs, border = BL_border, curPos = c(border[1], border[2]))
+  c11 = evaluateCubicPatchParXY(coef = BL_coefs, border = BL_border, curPos = c(border[1], border[2]))
 
-  value_BR = evaluateCubicPatchValue(coef = bottom_coefs, border = bottom_border, curPos = c(border[3], border[2]))
-  par_X_BR = evaluateCubicPatchParX(coef = bottom_coefs, border = bottom_border, curPos = c(border[3], border[2]))
-  par_Y_BR = evaluateCubicPatchParY(coef = bottom_coefs, border = bottom_border, curPos = c(border[3], border[2]))
-  par_XY_BR = evaluateCubicPatchParXY(coef = bottom_coefs, border = bottom_border, curPos = c(border[3], border[2]))
+  value_BR = evaluateCubicPatchValue(coef = BR_coefs, border = BR_border, curPos = c(border[3], border[2]))
+  par_X_BR = evaluateCubicPatchParX(coef = BR_coefs, border = BR_border, curPos = c(border[3], border[2]))
+  par_Y_BR = evaluateCubicPatchParY(coef = BR_coefs, border = BR_border, curPos = c(border[3], border[2]))
+  par_XY_BR = evaluateCubicPatchParXY(coef = BR_coefs, border = BR_border, curPos = c(border[3], border[2]))
 
   c20 = (-1*par_X_BR*dx + 3*value_BR - 3*c00 - 2*c10*dx)/(dx^2)
   c21 = (-1*par_XY_BR*dx + 3*par_Y_BR - 3*c01 - 2*c11*dx)/(dx^2)
   c30 = (par_X_BR*dx - 2*value_BR + 2*c00 + c10*dx)/(dx^3)
   c31 = (par_XY_BR*dx - 2*par_Y_BR + 2*c01 + c11*dx)/(dx^3)
 
-  value_TL = evaluateCubicPatchValue(coef = left_coefs, border = left_border, curPos = c(border[1], border[4]))
-  par_X_TL = evaluateCubicPatchParX(coef = left_coefs, border = left_border, curPos = c(border[1], border[4]))
-  par_Y_TL = evaluateCubicPatchParY(coef = left_coefs, border = left_border, curPos = c(border[1], border[4]))
-  par_XY_TL = evaluateCubicPatchParXY(coef = left_coefs, border = left_border, curPos = c(border[1], border[4]))
+  value_TL = evaluateCubicPatchValue(coef = TL_coefs, border = TL_border, curPos = c(border[1], border[4]))
+  par_X_TL = evaluateCubicPatchParX(coef = TL_coefs, border = TL_border, curPos = c(border[1], border[4]))
+  par_Y_TL = evaluateCubicPatchParY(coef = TL_coefs, border = TL_border, curPos = c(border[1], border[4]))
+  par_XY_TL = evaluateCubicPatchParXY(coef = TL_coefs, border = TL_border, curPos = c(border[1], border[4]))
 
   c02 = (-1*par_Y_TL*dy + 3*value_TL - 3*c00 - 2*c01*dy)/(dy^2)
   c12 = (-1*par_XY_TL*dy + 3*par_X_TL - 3*c10 - 2*c11*dy)/(dy^2)
   c03 = (par_Y_TL*dy - 2*value_TL + 2*c00 + c01*dy)/(dy^3)
   c13 = (par_XY_TL*dy - 2*par_X_TL + 2*c10 + c11*dy)/(dy^3)
 
-  value_TR = evaluateCubicPatchValue(coef = up_or_right_coefs, border = up_or_right_border, curPos = c(border[3], border[4]))
-  par_X_TR = evaluateCubicPatchParX(coef = up_or_right_coefs, border = up_or_right_border, curPos = c(border[3], border[4]))
-  par_Y_TR = evaluateCubicPatchParY(coef = up_or_right_coefs, border = up_or_right_border, curPos = c(border[3], border[4]))
-  par_XY_TR = evaluateCubicPatchParXY(coef = up_or_right_coefs, border = up_or_right_border, curPos = c(border[3], border[4]))
+  value_TR = evaluateCubicPatchValue(coef = TR_coefs, border = TR_border, curPos = c(border[3], border[4]))
+  par_X_TR = evaluateCubicPatchParX(coef = TR_coefs, border = TR_border, curPos = c(border[3], border[4]))
+  par_Y_TR = evaluateCubicPatchParY(coef = TR_coefs, border = TR_border, curPos = c(border[3], border[4]))
+  par_XY_TR = evaluateCubicPatchParXY(coef = TR_coefs, border = TR_border, curPos = c(border[3], border[4]))
 
   temp_coefs = c(c00, c01, c10, c11, c20, c21, c30, c31, c02, c03, c12, c13, 0, 0, 0, 0)
 
@@ -321,6 +321,182 @@ samplePatch_Known_Corners = function(border, k, bottom_coefs, bottom_border, lef
 
 }
 
+samplePatch_FullTree = function(tree, k){
+
+  treeBoundaries = orderBoundaries_GeminiCleaned(tree, F)
+  label_order = treeBoundaries$order
+
+  sampledCoefs = matrix(nrow = nrow(treeBoundaries), ncol = 16)
+
+  for(i in 1:nrow(sampledCoefs)){
+
+    cur_index = which(label_order == i)
+    cur_border = as.numeric(treeBoundaries[cur_index, 1:4])
+
+    cur_neighbors = find_neighbors(treeBoundaries, cur_index, T)
+
+    pot_BL = unname(label_order[c(cur_neighbors$Down[,1], cur_neighbors$Left[,1])])
+    pot_BL = pot_BL[pot_BL < i]
+
+    pot_BR = unname(label_order[c(cur_neighbors$Down[,1], cur_neighbors$Right[,1])])
+    pot_BR = pot_BR[pot_BR < i]
+
+    pot_TL = unname(label_order[c(cur_neighbors$Left[,1], cur_neighbors$Up[,1])])
+    pot_TL = pot_TL[pot_TL < i]
+
+    pot_TR = unname(label_order[c(cur_neighbors$Right[,1], cur_neighbors$Up[,1])])
+    pot_TR = pot_TR[pot_TR < i]
+
+    num_corners_defined = (length(pot_BL) > 0) + (length(pot_BR) > 0) + (length(pot_TL) > 0) + (length(pot_TR) > 0)
+
+    if(num_corners_defined == 0){
+
+      curCoefs = samplePatch_Unrestricted(border = cur_border, k = k)
+      sampledCoefs[cur_index,] = curCoefs
+
+    } else if(num_corners_defined == 2){
+
+      if(length(pot_BR) > 0){
+
+        BL_order = min(c(suppressWarnings(min(label_order[cur_neighbors$Down[,1]])),suppressWarnings(min(label_order[cur_neighbors$Left[,1]]))))
+        BL_index = which(label_order == BL_order)
+        BL_coefs = sampledCoefs[BL_index,]
+        BL_border = as.numeric(treeBoundaries[BL_index, 1:4])
+
+        BR_order = min(c(suppressWarnings(max(label_order[cur_neighbors$Down[,1]])),suppressWarnings(min(label_order[cur_neighbors$Right[,1]]))))
+        BR_index = which(label_order == BR_order)
+        BR_coefs = sampledCoefs[BR_index,]
+        BR_border = as.numeric(treeBoundaries[BR_index, 1:4])
+
+        curCoefs = samplePatch_Known_Bottom(cur_border, k = k, BL_coefs, BL_border, BR_coefs, BR_border)
+        sampledCoefs[cur_index,] = curCoefs
+
+      } else{
+
+        BL_order = min(c(suppressWarnings(min(label_order[cur_neighbors$Down[,1]])),suppressWarnings(min(label_order[cur_neighbors$Left[,1]]))))
+        BL_index = which(label_order == BL_order)
+        BL_coefs = sampledCoefs[BL_index,]
+        BL_border = as.numeric(treeBoundaries[BL_index, 1:4])
+
+        TL_order = min(c(suppressWarnings(max(label_order[cur_neighbors$Left[,1]])),suppressWarnings(min(label_order[cur_neighbors$Up[,1]]))))
+        TL_index = which(label_order == TL_order)
+        TL_coefs = sampledCoefs[TL_index,]
+        TL_border = as.numeric(treeBoundaries[TL_index, 1:4])
+
+        curCoefs = samplePatch_Known_Left(cur_border, k = k, BL_coefs, BL_border, TL_coefs, TL_border)
+        sampledCoefs[cur_index,] = curCoefs
+
+      }
+
+    } else if(num_corners_defined == 3){
+
+      BL_order = min(c(suppressWarnings(min(label_order[cur_neighbors$Down[,1]])),suppressWarnings(min(label_order[cur_neighbors$Left[,1]]))))
+      BL_index = which(label_order == BL_order)
+      BL_coefs = sampledCoefs[BL_index,]
+      BL_border = as.numeric(treeBoundaries[BL_index, 1:4])
+
+      BR_order = min(c(suppressWarnings(max(label_order[cur_neighbors$Down[,1]])),suppressWarnings(min(label_order[cur_neighbors$Right[,1]]))))
+      BR_index = which(label_order == BR_order)
+      BR_coefs = sampledCoefs[BR_index,]
+      BR_border = as.numeric(treeBoundaries[BR_index, 1:4])
+
+      TL_order = min(c(suppressWarnings(max(label_order[cur_neighbors$Left[,1]])),suppressWarnings(min(label_order[cur_neighbors$Up[,1]]))))
+      TL_index = which(label_order == TL_order)
+      TL_coefs = sampledCoefs[TL_index,]
+      TL_border = as.numeric(treeBoundaries[TL_index, 1:4])
+
+      curCoefs = samplePatch_Known_Bottom_and_Left(cur_border, k = k, BL_coefs, BL_border, BR_coefs, BR_border, TL_coefs, TL_border)
+      sampledCoefs[cur_index,] = curCoefs
+
+
+    } else{
+
+      BL_order = min(c(suppressWarnings(min(label_order[cur_neighbors$Down[,1]])),suppressWarnings(min(label_order[cur_neighbors$Left[,1]]))))
+      BL_index = which(label_order == BL_order)
+      BL_coefs = sampledCoefs[BL_index,]
+      BL_border = as.numeric(treeBoundaries[BL_index, 1:4])
+
+      BR_order = min(c(suppressWarnings(max(label_order[cur_neighbors$Down[,1]])),suppressWarnings(min(label_order[cur_neighbors$Right[,1]]))))
+      BR_index = which(label_order == BR_order)
+      BR_coefs = sampledCoefs[BR_index,]
+      BR_border = as.numeric(treeBoundaries[BR_index, 1:4])
+
+      TL_order = min(c(suppressWarnings(max(label_order[cur_neighbors$Left[,1]])),suppressWarnings(min(label_order[cur_neighbors$Up[,1]]))))
+      TL_index = which(label_order == TL_order)
+      TL_coefs = sampledCoefs[TL_index,]
+      TL_border = as.numeric(treeBoundaries[TL_index, 1:4])
+
+      TR_order = min(c(suppressWarnings(max(label_order[cur_neighbors$Right[,1]])),suppressWarnings(max(label_order[cur_neighbors$Up[,1]]))))
+      TR_index = which(label_order == TR_order)
+      TR_coefs = sampledCoefs[TR_index,]
+      TR_border = as.numeric(treeBoundaries[TR_index, 1:4])
+
+      curCoefs = samplePatch_Known_Corners(cur_border, k = k, BL_coefs, BL_border, BR_coefs, BR_border, TL_coefs, TL_border, TR_coefs, TR_border)
+      sampledCoefs[cur_index,] = curCoefs
+
+    }
+
+
+  }
+
+  tree$boundaries = treeBoundaries
+  tree$coefs = sampledCoefs
+
+  tree
+}
+
+evaluateSampledTreeValue = function(sampledTree, curPos){
+
+  cur_index = which(curPos[1] >= sampledTree$boundaries$L1 & curPos[1] <= sampledTree$boundaries$U1 & curPos[2] >= sampledTree$boundaries$L2 & curPos[2] <= sampledTree$boundaries$U2)[1]
+
+  cur_border = as.numeric(sampledTree$boundaries[cur_index, 1:4])
+  cur_coefs = as.numeric(sampledTree$coefs[cur_index,])
+
+  evaluateCubicPatchValue(cur_coefs, cur_border, curPos)
+
+}
+
+plotCubicPatch3D = function(sampledTree, grid_size = 0.1, z_limit = c(-5,6)){
+
+  border = sampledTree$border
+
+  test_grid = expand.grid(seq(border[1],border[3], grid_size), seq(border[2],border[4],grid_size))
+  PatchValues = apply(test_grid, 1, FUN = evaluateSampledTreeValue, sampledTree = sampledTree)
+
+  plottingGrid = data.frame(test_grid, PatchValues)
+  names(plottingGrid) = c('X','Y','Value')
+
+  Value <- xtabs(Value ~ Y + X, data = plottingGrid)
+  X <- as.numeric(rownames(Value))
+  Y <- as.numeric(colnames(Value))
+
+  plot = plot_ly(x = ~X, y = ~Y, z = ~Value, type = "surface")
+
+  plot %>% layout(
+    title = "3D Surface with Z-Axis Limit",
+    scene = list(
+      xaxis = list(title = 'X'),
+      yaxis = list(title = 'Y'),
+      zaxis = list(
+        title = 'Value',
+        range = z_limit # <-- This sets the Z-axis limit
+      )
+    )
+  )
+
+}
+
+#####
+
+tree = generate_grid_tree(0.1,c(0,0,10,10))
+plotTreeGrid(tree)
+
+sampledTree = samplePatch_FullTree(tree, 0.5)
+
+plotCubicPatch3D(sampledTree,grid_size = 0.01, z_limit = c(-5,6))
+
+plotTreeGrid(sampledTree)
+
 init_coef = samplePatch_Unrestricted(border_init, 0.5)
 
 test_grid = expand.grid(seq(0,2, 0.1), seq(0,3,0.1))
@@ -336,33 +512,6 @@ plot_ly(plottingGrid, x = ~X, y = ~Y, z = ~Value, type = "scatter3d", mode = "ma
 
 grid_size = 0.1
 
-plotCubicPatch3D = function(coef, border, grid_size){
-
-  test_grid = expand.grid(seq(border[1],border[3], grid_size), seq(border[2],border[4],grid_size))
-  PatchValues = apply(test_grid, 1, FUN = evaluateCubicPatchValue, coef = coef, border = border)
-
-  plottingGrid = data.frame(test_grid, PatchValues)
-  names(plottingGrid) = c('X','Y','Value')
-
-  Value <- xtabs(Value ~ X + Y, data = plottingGrid)
-  X <- as.numeric(rownames(Value))
-  Y <- as.numeric(colnames(Value))
-
-  plot = plot_ly(x = ~X, y = ~Y, z = ~Value, type = "surface")
-
-  plot %>% layout(
-    title = "3D Surface with Z-Axis Limit",
-    scene = list(
-      xaxis = list(title = 'X'),
-      yaxis = list(title = 'Y'),
-      zaxis = list(
-        title = 'Value',
-        range = c(-5, 6) # <-- This sets the Z-axis limit
-      )
-    )
-  )
-
-}
 
 border_init = c(0,0,2,3)
 
@@ -426,9 +575,9 @@ border5 = c(2,3,5,5)
 
 
 coef1 = samplePatch_Unrestricted(border1, 0.2)
-coef2 = samplePatch_Known_Bottom(border2, 0.2, coef1, border1)
-coef3 = samplePatch_Known_Bottom_and_Left(border3, 0.2, coef1, border1, coef2, border2)
-coef5 = samplePatch_Known_Bottom_and_Left(border5, 0.2, coef3, border3, coef2, border2)
+coef2 = samplePatch_Known_Bottom(border2, 0.2, coef1, border1, BR_coefs = coef1, BR_border = border1)
+coef3 = samplePatch_Known_Bottom_and_Left(border3, 0.2, coef1, border1, coef1, border1, coef2, border2)
+coef5 = samplePatch_Known_Bottom_and_Left(border5, 0.2, coef3, border3, coef3, border3, coef2, border2)
 
 coef3.5 = samplePatch_Known_Corners(border3.5, k = 0.2, coef1, border1, coef2, border2, coef5, border5)
 coef4 = samplePatch_Known_Corners(border4, k = 0.2, coef1, border1, coef3.5, border3.5, coef5, border5)
@@ -450,6 +599,7 @@ PatchValues5 = apply(grid5, 1, FUN = evaluateCubicPatchValue, coef = coef5, bord
 
 PatchValues3.5 = apply(grid3.5, 1, FUN = evaluateCubicPatchValue, coef = coef3.5, border = border3.5)
 PatchValues4 = apply(grid4, 1, FUN = evaluateCubicPatchValue, coef = coef4, border = border4)
+
 
 plottingGrid = data.frame(round(rbind(grid1, grid2,grid3,grid5), 1), c(PatchValues1, PatchValues2, PatchValues3, PatchValues5))
 plottingGrid_2 = data.frame(round(rbind(grid1, grid2, grid3.5, grid4,grid5),1), c(PatchValues1, PatchValues2, PatchValues3.5, PatchValues4, PatchValues5))

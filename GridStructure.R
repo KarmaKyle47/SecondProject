@@ -309,7 +309,103 @@ generateTree <- function(n_splits, border) {
   return(final_tree)
 }
 
+generate_grid_tree <- function(grid_size, border) {
+  # --- 1. Validation and Initialization ---
+  if (length(grid_size) != 1 || !is.numeric(grid_size) || grid_size <= 0) {
+    stop("'grid_size' must be a single positive number.")
+  }
 
+  dimension <- length(border) / 2
+  if (dimension %% 1 != 0) {
+    stop("Length of 'border' must be an even number.")
+  }
+
+  # --- Calculate grid counts from grid_size ---
+  extents <- border[(dimension + 1):(2 * dimension)] - border[1:dimension]
+  if (any(extents <= 0)) {
+    stop("Border extents must be positive (e.g., xmax > xmin).")
+  }
+
+  # Calculate the number of cells in each dimension
+  num_cells <- extents / grid_size
+
+  # Check if the extents are clean multiples of grid_size
+  if (any(abs(num_cells - round(num_cells)) > 1e-9)) {
+    warning("Border extents may not be integer multiples of grid_size. \nRounding to the nearest number of cells.")
+  }
+  grid_sizes <- as.integer(round(num_cells))
+
+  if (any(grid_sizes < 1)) {
+    stop("Calculated grid cells are less than 1 in at least one dimension. \n'grid_size' may be larger than the border extent.")
+  }
+
+  # --- The rest of the logic is the same as the previous function ---
+  total_splits <- prod(grid_sizes) - 1
+  max_regions <- total_splits + 1
+
+  if (total_splits == 0) {
+    return(create_tree(
+      boundaries = numeric(0),
+      split_dim_v = integer(0),
+      split_label_v = integer(0),
+      dim = dimension,
+      border = border
+    ))
+  }
+
+  splits_df <- data.frame(
+    splits = numeric(total_splits),
+    dim = integer(total_splits),
+    split_part = integer(total_splits)
+  )
+
+  current_regions <- matrix(0.0, nrow = max_regions, ncol = 2 * dimension)
+  current_regions[1, ] <- as.vector(border)
+  n_regions <- 1
+  split_idx <- 0
+
+  lower_cols <- 1:dimension
+  upper_cols <- (dimension + 1):(2 * dimension)
+
+  for (d in 1:dimension) {
+    n_subdivisions <- grid_sizes[d]
+    if (n_subdivisions <= 1) {
+      next
+    }
+    regions_to_process_indices <- 1:n_regions
+    for (r_idx in regions_to_process_indices) {
+      parent_region_bounds <- current_regions[r_idx, ]
+      dim_min <- parent_region_bounds[d]
+      dim_max <- parent_region_bounds[d + dimension]
+      cell_width <- (dim_max - dim_min) / n_subdivisions
+      region_to_split_label <- r_idx
+      for (k in 1:(n_subdivisions - 1)) {
+        split_idx <- split_idx + 1
+        split_val <- dim_min + k * cell_width
+        splits_df$splits[split_idx] <- split_val
+        splits_df$dim[split_idx] <- d
+        splits_df$split_part[split_idx] <- region_to_split_label
+        sibling_region <- current_regions[region_to_split_label, ]
+        current_regions[region_to_split_label, upper_cols[d]] <- split_val
+        sibling_region[lower_cols[d]] <- split_val
+        n_regions <- n_regions + 1
+        current_regions[n_regions, ] <- sibling_region
+        region_to_split_label <- n_regions
+      }
+    }
+  }
+
+  final_tree <- create_tree(
+    boundaries = splits_df$splits,
+    split_dim_v = splits_df$dim,
+    split_label_v = splits_df$split_part,
+    dim = dimension,
+    border = border
+  )
+  return(final_tree)
+}
+
+grid_tree = generate_grid_tree(0.01, c(0,0,1,1))
 
 orderBoundaries(tree)[[2]]
 
