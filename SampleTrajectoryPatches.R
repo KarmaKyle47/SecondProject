@@ -69,7 +69,7 @@ samplePatch_Unrestricted = function(border, k){
   A = matrix(c(1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
                0,0,dx,0,dx^2,0,dx^3,0,0,0,0,0,0,0,0,0,
                0,dy,0,0,0,0,0,0,dy^2,dy^3,0,0,0,0,0,0,
-               0,0,0,dx*dy,0,dx^2*dy,0,dx^3*dy,0,0,dx*dy^2,dx*dy^3,dx^2*dy^2,dx^2*dy^3,dx^3*dy^2,dx^3*dy^3,
+               0,dy,dx,dx*dy,dx^2,dx^2*dy,dx^3,dx^3*dy,dy^2,dy^3,dx*dy^2,dx*dy^3,dx^2*dy^2,dx^2*dy^3,dx^3*dy^2,dx^3*dy^3,
                0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,
                0,0,1,0,2*dx,0,3*dx^2,0,0,0,0,0,0,0,0,0,
                0,0,1,dy,0,0,0,0,0,0,dy^2,dy^3,0,0,0,0,
@@ -103,7 +103,7 @@ samplePatch_Known_Bottom = function(border, k, BL_coefs, BL_border, BR_coefs, BR
   A = matrix(c(1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
                0,0,dx,0,dx^2,0,dx^3,0,0,0,0,0,0,0,0,0,
                0,dy,0,0,0,0,0,0,dy^2,dy^3,0,0,0,0,0,0,
-               0,0,0,dx*dy,0,dx^2*dy,0,dx^3*dy,0,0,dx*dy^2,dx*dy^3,dx^2*dy^2,dx^2*dy^3,dx^3*dy^2,dx^3*dy^3,
+               0,dy,dx,dx*dy,dx^2,dx^2*dy,dx^3,dx^3*dy,dy^2,dy^3,dx*dy^2,dx*dy^3,dx^2*dy^2,dx^2*dy^3,dx^3*dy^2,dx^3*dy^3,
                0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,
                0,0,1,0,2*dx,0,3*dx^2,0,0,0,0,0,0,0,0,0,
                0,0,1,dy,0,0,0,0,0,0,dy^2,dy^3,0,0,0,0,
@@ -156,7 +156,7 @@ samplePatch_Known_Left = function(border, k, BL_coefs, BL_border, TL_coefs, TL_b
   A = matrix(c(1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
                0,0,dx,0,dx^2,0,dx^3,0,0,0,0,0,0,0,0,0,
                0,dy,0,0,0,0,0,0,dy^2,dy^3,0,0,0,0,0,0,
-               0,0,0,dx*dy,0,dx^2*dy,0,dx^3*dy,0,0,dx*dy^2,dx*dy^3,dx^2*dy^2,dx^2*dy^3,dx^3*dy^2,dx^3*dy^3,
+               0,dy,dx,dx*dy,dx^2,dx^2*dy,dx^3,dx^3*dy,dy^2,dy^3,dx*dy^2,dx*dy^3,dx^2*dy^2,dx^2*dy^3,dx^3*dy^2,dx^3*dy^3,
                0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,
                0,0,1,0,2*dx,0,3*dx^2,0,0,0,0,0,0,0,0,0,
                0,0,1,dy,0,0,0,0,0,0,dy^2,dy^3,0,0,0,0,
@@ -210,7 +210,7 @@ samplePatch_Known_Bottom_and_Left = function(border, k, BL_coefs, BL_border, BR_
   A = matrix(c(1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
                0,0,dx,0,dx^2,0,dx^3,0,0,0,0,0,0,0,0,0,
                0,dy,0,0,0,0,0,0,dy^2,dy^3,0,0,0,0,0,0,
-               0,0,0,dx*dy,0,dx^2*dy,0,dx^3*dy,0,0,dx*dy^2,dx*dy^3,dx^2*dy^2,dx^2*dy^3,dx^3*dy^2,dx^3*dy^3,
+               0,dy,dx,dx*dy,dx^2,dx^2*dy,dx^3,dx^3*dy,dy^2,dy^3,dx*dy^2,dx*dy^3,dx^2*dy^2,dx^2*dy^3,dx^3*dy^2,dx^3*dy^3,
                0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,
                0,0,1,0,2*dx,0,3*dx^2,0,0,0,0,0,0,0,0,0,
                0,0,1,dy,0,0,0,0,0,0,dy^2,dy^3,0,0,0,0,
@@ -491,7 +491,7 @@ plotCubicPatch3D = function(sampledTree, grid_size = 0.1, z_limit = c(-5,6)){
 tree = generate_grid_tree(0.1,c(0,0,10,10))
 plotTreeGrid(tree)
 
-sampledTree = samplePatch_FullTree(tree, 0.5)
+sampledTree = samplePatch_FullTree(tree, 0.1)
 
 plotCubicPatch3D(sampledTree,grid_size = 0.01, z_limit = c(-5,6))
 
