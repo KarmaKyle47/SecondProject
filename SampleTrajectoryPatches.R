@@ -488,7 +488,7 @@ plotCubicPatch3D = function(sampledTree, grid_size = 0.1, z_limit = c(-5,6)){
 
 #####
 
-tree = generate_grid_tree(0.1,c(0,0,10,10))
+tree = generate_grid_tree(0.1,c(0,0,1,1))
 plotTreeGrid(tree)
 
 sampledTree = samplePatch_FullTree(tree, 0.1)
