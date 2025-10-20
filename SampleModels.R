@@ -1,15 +1,23 @@
-find_neighbors <- function(all_boundaries, index, sep = F) {
+find_neighbors <- function(all_boundaries, index, sep = F, include_corners = F) {
 
   # Coordinates of the current boundary
   b <- all_boundaries[index, ]
 
   # Find boundaries that share an edge
   # Note: The small tolerance `1e-9` handles potential floating-point inaccuracies.
-  right_neighbors <- which(abs(all_boundaries$L1 - b$U1) < 1e-9 & all_boundaries$L2 < b$U2 & all_boundaries$U2 > b$L2)
-  left_neighbors  <- which(abs(all_boundaries$U1 - b$L1) < 1e-9 & all_boundaries$L2 < b$U2 & all_boundaries$U2 > b$L2)
-  up_neighbors    <- which(abs(all_boundaries$L2 - b$U2) < 1e-9 & all_boundaries$L1 < b$U1 & all_boundaries$U1 > b$L1)
-  down_neighbors  <- which(abs(all_boundaries$U2 - b$L2) < 1e-9 & all_boundaries$L1 < b$U1 & all_boundaries$U1 > b$L1)
+  if(include_corners){
 
+    right_neighbors <- which(abs(all_boundaries$L1 - b$U1) <= 0 & all_boundaries$L2 <= b$U2 & all_boundaries$U2 >= b$L2)
+    left_neighbors  <- which(abs(all_boundaries$U1 - b$L1) <= 0 & all_boundaries$L2 <= b$U2 & all_boundaries$U2 >= b$L2)
+    up_neighbors    <- which(abs(all_boundaries$L2 - b$U2) <= 0 & all_boundaries$L1 <= b$U1 & all_boundaries$U1 >= b$L1)
+    down_neighbors  <- which(abs(all_boundaries$U2 - b$L2) <= 0 & all_boundaries$L1 <= b$U1 & all_boundaries$U1 >= b$L1)
+
+  } else{
+    right_neighbors <- which(abs(all_boundaries$L1 - b$U1) < 1e-9 & all_boundaries$L2 < b$U2 & all_boundaries$U2 > b$L2)
+    left_neighbors  <- which(abs(all_boundaries$U1 - b$L1) < 1e-9 & all_boundaries$L2 < b$U2 & all_boundaries$U2 > b$L2)
+    up_neighbors    <- which(abs(all_boundaries$L2 - b$U2) < 1e-9 & all_boundaries$L1 < b$U1 & all_boundaries$U1 > b$L1)
+    down_neighbors  <- which(abs(all_boundaries$U2 - b$L2) < 1e-9 & all_boundaries$L1 < b$U1 & all_boundaries$U1 > b$L1)
+  }
 
   right_edges = apply(cbind(all_boundaries$L2[right_neighbors],
                       all_boundaries$U2[right_neighbors],
