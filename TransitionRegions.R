@@ -59,7 +59,7 @@ sampleTransitions = function(sampledTree, sampledModels, model, trans_prop = 0.3
     newBoundaries[cellsToSplit,]$U1 = curSplitLocLow
     newBoundaries[cellsToSplit,]$Type = "T"
 
-    curBoundaries = data.frame(L1 = c(rep(curSplitLocLow, n_cells), rep(curSplitLocHigh, n_cells)), L2 = rep(newBoundaries[cellsToSplit,]$L2,2), U1 = c(rep(curSplitLocHigh, n_cells), rep(curSplitLocHigh + trans_length, n_cells)), U2 = rep(newBoundaries[cellsToSplit,]$U2,2), order = NA, Type = c(cellTypes, rep("T", n_cells)), OGIndex = rep(cellOGIndex, 2))
+    curBoundaries = data.frame(L1 = c(rep(curSplitLocLow, n_cells), rep(curSplitLocHigh, n_cells)), L2 = rep(newBoundaries[cellsToSplit,]$L2,2), U1 = c(rep(curSplitLocHigh, n_cells), rep(curSplitLocHigh + trans_length, n_cells)), U2 = rep(newBoundaries[cellsToSplit,]$U2,2), Type = c(cellTypes, rep("T", n_cells)), OGIndex = rep(cellOGIndex, 2))
 
     newBoundaries = rbind(newBoundaries, curBoundaries)
 
@@ -81,7 +81,7 @@ sampleTransitions = function(sampledTree, sampledModels, model, trans_prop = 0.3
     newBoundaries[cellsToSplit,]$U2 = curSplitLocLow
     newBoundaries[cellsToSplit,]$Type = "T"
 
-    curBoundaries = data.frame(L1 = rep(newBoundaries[cellsToSplit,]$L1,2), L2 = c(rep(curSplitLocLow, n_cells), rep(curSplitLocHigh, n_cells)), U1 = rep(newBoundaries[cellsToSplit,]$U1,2), U2 = c(rep(curSplitLocHigh, n_cells), rep(curSplitLocHigh + trans_length, n_cells)), order = NA, Type = c(cellTypes, rep("T", n_cells)), OGIndex = rep(cellOGIndex, 2))
+    curBoundaries = data.frame(L1 = rep(newBoundaries[cellsToSplit,]$L1,2), L2 = c(rep(curSplitLocLow, n_cells), rep(curSplitLocHigh, n_cells)), U1 = rep(newBoundaries[cellsToSplit,]$U1,2), U2 = c(rep(curSplitLocHigh, n_cells), rep(curSplitLocHigh + trans_length, n_cells)), Type = c(cellTypes, rep("T", n_cells)), OGIndex = rep(cellOGIndex, 2))
 
     newBoundaries = rbind(newBoundaries, curBoundaries)
 
@@ -201,7 +201,29 @@ sampleTransitions = function(sampledTree, sampledModels, model, trans_prop = 0.3
   TransitionTree
 }
 
+plotTransitionRegions = function(treeBoundaries,types, title = ""){
 
+  ShadeData = data.frame(xmin = treeBoundaries$L1,
+                         xmax = treeBoundaries$U1,
+                         ymin = treeBoundaries$L2,
+                         ymax = treeBoundaries$U2,
+                         Region = types)
+
+  plot = ggplot() +
+    geom_segment(data = treeBoundaries, aes(x = L1, y = L2, xend = L1, yend = U2), color = 'black') +
+    geom_segment(data = treeBoundaries, aes(x = U1, y = L2, xend = U1, yend = U2), color = 'black') +
+    geom_segment(data = treeBoundaries, aes(x = L1, y = L2, xend = U1, yend = L2), color = 'black') +
+    geom_segment(data = treeBoundaries, aes(x = L1, y = U2, xend = U1, yend = U2), color = 'black') +
+    geom_rect(data = ShadeData,
+              aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax,
+                  fill = Region),
+              inherit.aes = FALSE,
+              alpha = 0.4)  +
+    xlab("Longitude") + ylab("Latitude") + theme(legend.position = "none") + ggtitle(title) + theme(plot.title = element_text(hjust = 0.5))
+
+  plot
+
+}
 
 
 
@@ -226,7 +248,7 @@ plotCubicPatch3D(transitionTree,grid_size = 0.01)
 
 modelUpdatedTree = updatedTree_1
 
-transitionTree = sampleTransitions(updatedTree_1, trans_prop = .99999)
+transitionTree = sampleTransitions(updatedTree_1, sampledModels = sampledModelsBoundaries[,6:7], model = 1, trans_prop = .99999)
 
 treeBorders(transitionTree)
 
