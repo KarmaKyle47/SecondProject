@@ -67,9 +67,9 @@ samplePatch_Unrestricted = function(border, k){
   dy = border[4] - border[2]
 
   A = matrix(c(1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-               0,0,dx,0,dx^2,0,dx^3,0,0,0,0,0,0,0,0,0,
-               0,dy,0,0,0,0,0,0,dy^2,dy^3,0,0,0,0,0,0,
-               0,dy,dx,dx*dy,dx^2,dx^2*dy,dx^3,dx^3*dy,dy^2,dy^3,dx*dy^2,dx*dy^3,dx^2*dy^2,dx^2*dy^3,dx^3*dy^2,dx^3*dy^3,
+               1,0,dx,0,dx^2,0,dx^3,0,0,0,0,0,0,0,0,0,
+               1,dy,0,0,0,0,0,0,dy^2,dy^3,0,0,0,0,0,0,
+               1,dy,dx,dx*dy,dx^2,dx^2*dy,dx^3,dx^3*dy,dy^2,dy^3,dx*dy^2,dx*dy^3,dx^2*dy^2,dx^2*dy^3,dx^3*dy^2,dx^3*dy^3,
                0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,
                0,0,1,0,2*dx,0,3*dx^2,0,0,0,0,0,0,0,0,0,
                0,0,1,dy,0,0,0,0,0,0,dy^2,dy^3,0,0,0,0,
@@ -85,7 +85,7 @@ samplePatch_Unrestricted = function(border, k){
 
   A_inv = solve(A)
 
-  mu = A_inv %*% c(1, rep(0, 15))
+  mu = A_inv %*% c(rep(1,4), rep(0, 12))
 
   sigma = k^2*(A_inv %*% t(A_inv))
 
@@ -101,9 +101,9 @@ samplePatch_Known_Bottom = function(border, k, BL_coefs, BL_border, BR_coefs, BR
   dy = border[4] - border[2]
 
   A = matrix(c(1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-               0,0,dx,0,dx^2,0,dx^3,0,0,0,0,0,0,0,0,0,
-               0,dy,0,0,0,0,0,0,dy^2,dy^3,0,0,0,0,0,0,
-               0,dy,dx,dx*dy,dx^2,dx^2*dy,dx^3,dx^3*dy,dy^2,dy^3,dx*dy^2,dx*dy^3,dx^2*dy^2,dx^2*dy^3,dx^3*dy^2,dx^3*dy^3,
+               1,0,dx,0,dx^2,0,dx^3,0,0,0,0,0,0,0,0,0,
+               1,dy,0,0,0,0,0,0,dy^2,dy^3,0,0,0,0,0,0,
+               1,dy,dx,dx*dy,dx^2,dx^2*dy,dx^3,dx^3*dy,dy^2,dy^3,dx*dy^2,dx*dy^3,dx^2*dy^2,dx^2*dy^3,dx^3*dy^2,dx^3*dy^3,
                0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,
                0,0,1,0,2*dx,0,3*dx^2,0,0,0,0,0,0,0,0,0,
                0,0,1,dy,0,0,0,0,0,0,dy^2,dy^3,0,0,0,0,
@@ -135,7 +135,7 @@ samplePatch_Known_Bottom = function(border, k, BL_coefs, BL_border, BR_coefs, BR
 
   known_coefs = c(c00, c01, c10, c11, c20, c21, c30, c31)
 
-  mu_trans = -1*(A[c(3,4,7,8,11,12,15,16), 1:8] %*% known_coefs)
+  mu_trans = c(rep(1,2), rep(0,6)) - (A[c(3,4,7,8,11,12,15,16), 1:8] %*% known_coefs)
 
   A_inv = solve(A[c(3,4,7,8,11,12,15,16), 9:16])
 
@@ -154,9 +154,9 @@ samplePatch_Known_Left = function(border, k, BL_coefs, BL_border, TL_coefs, TL_b
   dy = border[4] - border[2]
 
   A = matrix(c(1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-               0,0,dx,0,dx^2,0,dx^3,0,0,0,0,0,0,0,0,0,
-               0,dy,0,0,0,0,0,0,dy^2,dy^3,0,0,0,0,0,0,
-               0,dy,dx,dx*dy,dx^2,dx^2*dy,dx^3,dx^3*dy,dy^2,dy^3,dx*dy^2,dx*dy^3,dx^2*dy^2,dx^2*dy^3,dx^3*dy^2,dx^3*dy^3,
+               1,0,dx,0,dx^2,0,dx^3,0,0,0,0,0,0,0,0,0,
+               1,dy,0,0,0,0,0,0,dy^2,dy^3,0,0,0,0,0,0,
+               1,dy,dx,dx*dy,dx^2,dx^2*dy,dx^3,dx^3*dy,dy^2,dy^3,dx*dy^2,dx*dy^3,dx^2*dy^2,dx^2*dy^3,dx^3*dy^2,dx^3*dy^3,
                0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,
                0,0,1,0,2*dx,0,3*dx^2,0,0,0,0,0,0,0,0,0,
                0,0,1,dy,0,0,0,0,0,0,dy^2,dy^3,0,0,0,0,
@@ -188,7 +188,7 @@ samplePatch_Known_Left = function(border, k, BL_coefs, BL_border, TL_coefs, TL_b
 
   known_coefs = c(c00, c01, c10, c11, c02, c03, c12, c13)
 
-  mu_trans = -1*(A[c(2,4,6,8,10,12,14,16), c(1:4,9:12)] %*% known_coefs)
+  mu_trans = c(rep(1,2), rep(0,6)) - (A[c(2,4,6,8,10,12,14,16), c(1:4,9:12)] %*% known_coefs)
 
   A_inv = solve(A[c(2,4,6,8,10,12,14,16), c(5:8,13:16)])
 
@@ -208,9 +208,9 @@ samplePatch_Known_Bottom_and_Left = function(border, k, BL_coefs, BL_border, BR_
   dy = border[4] - border[2]
 
   A = matrix(c(1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
-               0,0,dx,0,dx^2,0,dx^3,0,0,0,0,0,0,0,0,0,
-               0,dy,0,0,0,0,0,0,dy^2,dy^3,0,0,0,0,0,0,
-               0,dy,dx,dx*dy,dx^2,dx^2*dy,dx^3,dx^3*dy,dy^2,dy^3,dx*dy^2,dx*dy^3,dx^2*dy^2,dx^2*dy^3,dx^3*dy^2,dx^3*dy^3,
+               1,0,dx,0,dx^2,0,dx^3,0,0,0,0,0,0,0,0,0,
+               1,dy,0,0,0,0,0,0,dy^2,dy^3,0,0,0,0,0,0,
+               1,dy,dx,dx*dy,dx^2,dx^2*dy,dx^3,dx^3*dy,dy^2,dy^3,dx*dy^2,dx*dy^3,dx^2*dy^2,dx^2*dy^3,dx^3*dy^2,dx^3*dy^3,
                0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,
                0,0,1,0,2*dx,0,3*dx^2,0,0,0,0,0,0,0,0,0,
                0,0,1,dy,0,0,0,0,0,0,dy^2,dy^3,0,0,0,0,
@@ -251,7 +251,7 @@ samplePatch_Known_Bottom_and_Left = function(border, k, BL_coefs, BL_border, BR_
 
   known_coefs = c(c00, c01, c10, c11, c20, c21, c30, c31, c02, c03, c12, c13)
 
-  mu_trans = -1*(A[c(4,8,12,16), 1:12] %*% known_coefs)
+  mu_trans = c(1,0,0,0) - (A[c(4,8,12,16), 1:12] %*% known_coefs)
 
   A_inv = solve(A[c(4,8,12,16), 13:16])
 
@@ -318,6 +318,13 @@ samplePatch_Known_Corners = function(border, k, BL_coefs, BL_border, BR_coefs, B
   known_coefs = c(c00, c01, c10, c11, c20, c21, c30, c31, c02, c03, c12, c13, c22, c23, c32, c33)
 
   known_coefs
+
+}
+
+definePatch_KnownCornerStats = function(border, BL_stats, BR_stats, TL_stats, TR_stats){
+
+
+
 
 }
 
@@ -443,6 +450,132 @@ samplePatch_FullTree = function(tree, k){
   tree$coefs = sampledCoefs
 
   tree
+}
+
+samplePatch_FullTree_V2 = function(tree, k){
+
+  treeBoundaries = orderBoundaries_GeminiCleaned(tree, F)
+  label_order = treeBoundaries$order
+
+  sampledCoefs = matrix(nrow = nrow(treeBoundaries), ncol = 16)
+
+  for(i in 1:nrow(sampledCoefs)){
+
+    cur_index = which(label_order == i)
+    cur_border = as.numeric(treeBoundaries[cur_index, 1:4])
+
+    cur_neighbors = find_neighbors(treeBoundaries, cur_index, T)
+
+    pot_BL = unname(label_order[c(cur_neighbors$Down[,1], cur_neighbors$Left[,1])])
+    pot_BL = pot_BL[pot_BL < i]
+
+    pot_BR = unname(label_order[c(cur_neighbors$Down[,1], cur_neighbors$Right[,1])])
+    pot_BR = pot_BR[pot_BR < i]
+
+    pot_TL = unname(label_order[c(cur_neighbors$Left[,1], cur_neighbors$Up[,1])])
+    pot_TL = pot_TL[pot_TL < i]
+
+    pot_TR = unname(label_order[c(cur_neighbors$Right[,1], cur_neighbors$Up[,1])])
+    pot_TR = pot_TR[pot_TR < i]
+
+    num_corners_defined = (length(pot_BL) > 0) + (length(pot_BR) > 0) + (length(pot_TL) > 0) + (length(pot_TR) > 0)
+
+    if(num_corners_defined == 0){
+
+      curCoefs = samplePatch_Unrestricted(border = cur_border, k = k)
+      sampledCoefs[cur_index,] = curCoefs
+
+    } else if(num_corners_defined == 2){
+
+      if(length(pot_BR) > 0){
+
+        BL_order = min(c(suppressWarnings(min(label_order[cur_neighbors$Down[,1]])),suppressWarnings(min(label_order[cur_neighbors$Left[,1]]))))
+        BL_index = which(label_order == BL_order)
+        BL_coefs = sampledCoefs[BL_index,]
+        BL_border = as.numeric(treeBoundaries[BL_index, 1:4])
+
+        BR_order = min(c(suppressWarnings(max(label_order[cur_neighbors$Down[,1]])),suppressWarnings(min(label_order[cur_neighbors$Right[,1]]))))
+        BR_index = which(label_order == BR_order)
+        BR_coefs = sampledCoefs[BR_index,]
+        BR_border = as.numeric(treeBoundaries[BR_index, 1:4])
+
+        curCoefs = samplePatch_Known_Bottom(cur_border, k = k, BL_coefs, BL_border, BR_coefs, BR_border)
+        sampledCoefs[cur_index,] = curCoefs
+
+      } else{
+
+        BL_order = min(c(suppressWarnings(min(label_order[cur_neighbors$Down[,1]])),suppressWarnings(min(label_order[cur_neighbors$Left[,1]]))))
+        BL_index = which(label_order == BL_order)
+        BL_coefs = sampledCoefs[BL_index,]
+        BL_border = as.numeric(treeBoundaries[BL_index, 1:4])
+
+        TL_order = min(c(suppressWarnings(max(label_order[cur_neighbors$Left[,1]])),suppressWarnings(min(label_order[cur_neighbors$Up[,1]]))))
+        TL_index = which(label_order == TL_order)
+        TL_coefs = sampledCoefs[TL_index,]
+        TL_border = as.numeric(treeBoundaries[TL_index, 1:4])
+
+        curCoefs = samplePatch_Known_Left(cur_border, k = k, BL_coefs, BL_border, TL_coefs, TL_border)
+        sampledCoefs[cur_index,] = curCoefs
+
+      }
+
+    } else if(num_corners_defined == 3){
+
+      BL_order = min(c(suppressWarnings(min(label_order[cur_neighbors$Down[,1]])),suppressWarnings(min(label_order[cur_neighbors$Left[,1]]))))
+      BL_index = which(label_order == BL_order)
+      BL_coefs = sampledCoefs[BL_index,]
+      BL_border = as.numeric(treeBoundaries[BL_index, 1:4])
+
+      BR_order = min(c(suppressWarnings(max(label_order[cur_neighbors$Down[,1]])),suppressWarnings(min(label_order[cur_neighbors$Right[,1]]))))
+      BR_index = which(label_order == BR_order)
+      BR_coefs = sampledCoefs[BR_index,]
+      BR_border = as.numeric(treeBoundaries[BR_index, 1:4])
+
+      TL_order = min(c(suppressWarnings(max(label_order[cur_neighbors$Left[,1]])),suppressWarnings(min(label_order[cur_neighbors$Up[,1]]))))
+      TL_index = which(label_order == TL_order)
+      TL_coefs = sampledCoefs[TL_index,]
+      TL_border = as.numeric(treeBoundaries[TL_index, 1:4])
+
+      curCoefs = samplePatch_Known_Bottom_and_Left(cur_border, k = k, BL_coefs, BL_border, BR_coefs, BR_border, TL_coefs, TL_border)
+      sampledCoefs[cur_index,] = curCoefs
+
+
+    } else{
+
+      BL_order = min(c(suppressWarnings(min(label_order[cur_neighbors$Down[,1]])),suppressWarnings(min(label_order[cur_neighbors$Left[,1]]))))
+      BL_index = which(label_order == BL_order)
+      BL_coefs = sampledCoefs[BL_index,]
+      BL_border = as.numeric(treeBoundaries[BL_index, 1:4])
+
+      BR_order = min(c(suppressWarnings(max(label_order[cur_neighbors$Down[,1]])),suppressWarnings(min(label_order[cur_neighbors$Right[,1]]))))
+      BR_index = which(label_order == BR_order)
+      BR_coefs = sampledCoefs[BR_index,]
+      BR_border = as.numeric(treeBoundaries[BR_index, 1:4])
+
+      TL_order = min(c(suppressWarnings(max(label_order[cur_neighbors$Left[,1]])),suppressWarnings(min(label_order[cur_neighbors$Up[,1]]))))
+      TL_index = which(label_order == TL_order)
+      TL_coefs = sampledCoefs[TL_index,]
+      TL_border = as.numeric(treeBoundaries[TL_index, 1:4])
+
+      TR_order = min(c(suppressWarnings(max(label_order[cur_neighbors$Right[,1]])),suppressWarnings(max(label_order[cur_neighbors$Up[,1]]))))
+      TR_index = which(label_order == TR_order)
+      TR_coefs = sampledCoefs[TR_index,]
+      TR_border = as.numeric(treeBoundaries[TR_index, 1:4])
+
+      curCoefs = samplePatch_Known_Corners(cur_border, k = k, BL_coefs, BL_border, BR_coefs, BR_border, TL_coefs, TL_border, TR_coefs, TR_border)
+      sampledCoefs[cur_index,] = curCoefs
+
+    }
+
+
+  }
+
+  tree$boundaries = treeBoundaries
+  tree$coefs = sampledCoefs
+
+  tree
+
+
 }
 
 evaluateSampledTreeValue = function(sampledTree, curPos){

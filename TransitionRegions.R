@@ -21,7 +21,7 @@ updatePatchesByModelExistence = function(sampledTree, sampledModelsBoundaries, m
   updatedTree
 }
 
-sampleTransitions = function(modelUpdatedTree, trans_prop = 0.3){
+sampleTransitions = function(sampledTree, sampledModels, model, trans_prop = 0.3){
 
   #Constructing all possible boundary regions
 
@@ -29,20 +29,20 @@ sampleTransitions = function(modelUpdatedTree, trans_prop = 0.3){
     trans_prop = rbeta(1, 10, 90)
   }
 
-  x_grid_size = modelUpdatedTree$boundaries[1,"U1"] - modelUpdatedTree$boundaries[1,"L1"]
-  y_grid_size = modelUpdatedTree$boundaries[1,"U2"] - modelUpdatedTree$boundaries[1,"L2"]
+  x_grid_size = sampledTree$boundaries[1,"U1"] - sampledTree$boundaries[1,"L1"]
+  y_grid_size = sampledTree$boundaries[1,"U2"] - sampledTree$boundaries[1,"L2"]
 
   trans_length = (x_grid_size + y_grid_size - sqrt((x_grid_size + y_grid_size)^2 - 4*trans_prop*x_grid_size*y_grid_size))/4
 
-  newBoundaries = modelUpdatedTree$boundaries
+  newBoundaries = sampledTree$boundaries
   newBoundaries$Type = "On"
-  newBoundaries$Type[rowSums(modelUpdatedTree$coefs == 0) == 16] = "Off"
+  newBoundaries$Type[sampledModels[,1] != model & sampledModels[,2] != model] = "Off"
   newBoundaries$OGIndex = 1:nrow(newBoundaries)
 
-  newSplits = modelUpdatedTree$split
+  newSplits = sampledTree$split
 
-  x_cells_num = (modelUpdatedTree$border[3] - modelUpdatedTree$border[1])/x_grid_size
-  y_cells_num = (modelUpdatedTree$border[4] - modelUpdatedTree$border[2])/x_grid_size
+  x_cells_num = (sampledTree$border[3] - sampledTree$border[1])/x_grid_size
+  y_cells_num = (sampledTree$border[4] - sampledTree$border[2])/x_grid_size
 
   for(i in 1:x_cells_num){
 
@@ -126,6 +126,8 @@ sampleTransitions = function(modelUpdatedTree, trans_prop = 0.3){
 
   newCoefs = matrix(0, nrow = nrow(newBoundaries), ncol = 16)
 
+  all_Index = 1:nrow(newBoundaries)
+
   on_Index = which(newBoundaries$Type == "On")
   t_Index = which(newBoundaries$Type == "T")
 
@@ -135,27 +137,45 @@ sampleTransitions = function(modelUpdatedTree, trans_prop = 0.3){
     curBorder = unname(unlist(newBoundaries[i,1:4]))
     k=0
 
-    cur_BLcoefs = cur_BRcoefs = cur_TLcoefs = cur_TRcoefs = unname(unlist(modelUpdatedTree$coefs[newBoundaries$OGIndex[i],]))
-    cur_BLborder = cur_BRborder = cur_TLborder = curTRborder = unname(unlist(modelUpdatedTree$boundaries[newBoundaries$OGIndex[i],1:4]))
+    cur_BLcoefs = cur_BRcoefs = cur_TLcoefs = cur_TRcoefs = unname(unlist(sampledTree$coefs[newBoundaries$OGIndex[i],]))
+    cur_BLborder = cur_BRborder = cur_TLborder = curTRborder = unname(unlist(sampledTree$boundaries[newBoundaries$OGIndex[i],1:4]))
 
     newCoefs[i,] = samplePatch_Known_Corners(curBorder, k, cur_BLcoefs, cur_BLborder, cur_BRcoefs, cur_BRborder, cur_TLcoefs, cur_TLborder, cur_TRcoefs, curTRborder)
 
   }
-
+  i= t_Index[1]
   for(i in t_Index){
 
     curBorder = unname(unlist(newBoundaries[i,1:4]))
     k=0
 
-    curNeighbors = find_neighbors(newBoundaries, index = i, sep = T, include_corners = T)
-    curNieghbors_NoT = lapply(curNeighbors, FUN = function(mat){
+    curNeighbors_wCorners = find_neighbors(newBoundaries, index = i, sep = T, include_corners = T)
+    curNeighbors_woCorners = find_neighbors(newBoundaries, index = i, sep = T, include_corners = F)
+    curNieghbors_wCorners_NoT = lapply(curNeighbors_wCorners, FUN = function(mat){
+      matrix(mat[newBoundaries$Type[mat[,1]] != "T",], ncol = 2)
+    })
+    curNieghbors_woCorners_NoT = lapply(curNeighbors_woCorners, FUN = function(mat){
       matrix(mat[newBoundaries$Type[mat[,1]] != "T",], ncol = 2)
     })
 
-    curBL_index = c(curNieghbors_NoT$Down[,1], curNieghbors_NoT$Left[,1])[1]
-    curTL_index = c(curNieghbors_NoT$Up[,1], curNieghbors_NoT$Left[,1])[1]
-    curBR_index = c(curNieghbors_NoT$Down[,1], curNieghbors_NoT$Right[,1])[1]
-    curTR_index = c(curNieghbors_NoT$Up[,1], curNieghbors_NoT$Right[,1])[1]
+
+    curBL_index = all_Index[all_Index %in% curNieghbors_wCorners_NoT$Down[,1] & all_Index %in% curNieghbors_wCorners_NoT$Left[,1]]
+    curTL_index = all_Index[all_Index %in% curNieghbors_wCorners_NoT$Up[,1] & all_Index %in% curNieghbors_wCorners_NoT$Left[,1]]
+    curBR_index = all_Index[all_Index %in% curNieghbors_wCorners_NoT$Down[,1] & all_Index %in% curNieghbors_wCorners_NoT$Right[,1]]
+    curTR_index = all_Index[all_Index %in% curNieghbors_wCorners_NoT$Up[,1] & all_Index %in% curNieghbors_wCorners_NoT$Right[,1]]
+
+    if(length(curBL_index) == 0){
+      curBL_index = c(curNieghbors_woCorners_NoT$Down[,1], curNieghbors_woCorners_NoT$Left[,1])[1]
+    }
+    if(length(curTL_index) == 0){
+      curTL_index = c(curNieghbors_woCorners_NoT$Up[,1], curNieghbors_woCorners_NoT$Left[,1])[1]
+    }
+    if(length(curBR_index) == 0){
+      curBR_index = c(curNieghbors_woCorners_NoT$Down[,1], curNieghbors_woCorners_NoT$Right[,1])[1]
+    }
+    if(length(curTR_index) == 0){
+      curTR_index = c(curNieghbors_woCorners_NoT$Up[,1], curNieghbors_woCorners_NoT$Right[,1])[1]
+    }
 
     cur_BLborder = unname(unlist(newBoundaries[curBL_index,1:4]))
     cur_TLborder = unname(unlist(newBoundaries[curTL_index,1:4]))
@@ -175,8 +195,8 @@ sampleTransitions = function(modelUpdatedTree, trans_prop = 0.3){
 
   TransitionTree = list(split = newSplits,
                         boundaries = newBoundaries,
-                        dimension = modelUpdatedTree$dimension,
-                        border = modelUpdatedTree$border,
+                        dimension = sampledTree$dimension,
+                        border = sampledTree$border,
                         coefs = newCoefs)
   TransitionTree
 }
@@ -188,8 +208,10 @@ sampleTransitions = function(modelUpdatedTree, trans_prop = 0.3){
 tree = generate_grid_tree(0.1,c(0,0,1,1))
 plotTreeGrid(tree)
 
-sampledTree = samplePatch_FullTree(tree, 0.001)
+sampledTree = samplePatch_FullTree(tree, 1)
 plotCubicPatch3D(sampledTree,grid_size = 0.01, z_limit = c(-5,6))
+plotCubicPatch3D(transitionTree,grid_size = 0.01, z_limit = c(-5,6))
+plotCubicPatch3D(updatedTree_1,grid_size = 0.01, z_limit = c(-5,6))
 
 sampledModelsBoundaries = sample_models_one_pass(tree, 5, baseWeight = 0.1)
 
@@ -200,11 +222,11 @@ updatedTree_4 = updatePatchesByModelExistence(sampledTree, sampledModelsBoundari
 updatedTree_5 = updatePatchesByModelExistence(sampledTree, sampledModelsBoundaries, model = 5)
 visualizeModelExistence(sampledModelsBoundaries, model = 1)
 
-plotCubicPatch3D(transitionTree,grid_size = 0.001)
+plotCubicPatch3D(transitionTree,grid_size = 0.01)
 
 modelUpdatedTree = updatedTree_1
 
-transitionTree = sampleTransitions(updatedTree_1, trans_prop = 0.9)
+transitionTree = sampleTransitions(updatedTree_1, trans_prop = .99999)
 
 treeBorders(transitionTree)
 
@@ -227,8 +249,47 @@ plot = ggplot() +
             aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax,
                 fill = Region),
             inherit.aes = FALSE,
-            alpha = 0.4) +
+            alpha = 0.4) + geom_text(
+              data = Borders,
+              aes(
+                x = (L1 + U1) / 2,
+                y = (L2 + U2) / 2,
+                label = 1:nrow(Borders)
+              ),
+              color = "black",
+              size = 2
+            ) +
   xlab("Longitude") + ylab("Latitude") + theme(legend.position = "none")
 
 plot
+
+border = transitionTree$border
+grid_size = 0.001
+
+test_grid = expand.grid(seq(border[1],border[3], grid_size), seq(border[2],border[4],grid_size))
+PatchValues = apply(test_grid, 1, FUN = evaluateSampledTreeValue, sampledTree = transitionTree)
+
+plottingGrid = data.frame(test_grid, PatchValues)
+names(plottingGrid) = c('X','Y','Value')
+
+plot(diff(plottingGrid[plottingGrid$X == 0.5,3]))
+plot(diff(plottingGrid[,3]))
+
+Value <- xtabs(Value ~ Y + X, data = plottingGrid)
+X <- as.numeric(rownames(Value))
+Y <- as.numeric(colnames(Value))
+
+plot = plot_ly(x = ~X, y = ~Y, z = ~Value, type = "scatter3d", mode = "markers")
+
+plot %>% layout(
+  title = "3D Surface with Z-Axis Limit",
+  scene = list(
+    xaxis = list(title = 'X'),
+    yaxis = list(title = 'Y'),
+    zaxis = list(
+      title = 'Value',
+      range = z_limit # <-- This sets the Z-axis limit
+    )
+  )
+)
 

@@ -402,6 +402,9 @@ generate_grid_tree <- function(grid_size, border) {
     dim = dimension,
     border = border
   )
+
+  final_tree$boundaries = treeBorders(final_tree)
+
   return(final_tree)
 }
 
