@@ -39,7 +39,7 @@ plotFullTree = function(fullTree, surface_grid_size = 0.01){
 
   typePlots = list()
   surfacePlots = list()
-i=3
+i=3 # This still needs to be fixed
   for(i in 1:num_models){
 
     typePlots[[i]] = plotTransitionRegions(fullTree$boundaries, fullTree$models[,i], str_c("Model ", i, " Regions"))
