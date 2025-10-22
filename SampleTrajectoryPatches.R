@@ -321,13 +321,6 @@ samplePatch_Known_Corners = function(border, k, BL_coefs, BL_border, BR_coefs, B
 
 }
 
-definePatch_KnownCornerStats = function(border, BL_stats, BR_stats, TL_stats, TR_stats){
-
-
-
-
-}
-
 samplePatch_FullTree = function(tree, k){
 
   treeBoundaries = orderBoundaries_GeminiCleaned(tree, F)

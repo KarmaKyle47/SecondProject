@@ -143,7 +143,7 @@ sampleTransitions = function(sampledTree, sampledModels, model, trans_prop = 0.3
     newCoefs[i,] = samplePatch_Known_Corners(curBorder, k, cur_BLcoefs, cur_BLborder, cur_BRcoefs, cur_BRborder, cur_TLcoefs, cur_TLborder, cur_TRcoefs, curTRborder)
 
   }
-  i= t_Index[1]
+
   for(i in t_Index){
 
     curBorder = unname(unlist(newBoundaries[i,1:4]))
