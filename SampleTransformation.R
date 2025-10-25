@@ -142,68 +142,97 @@ phySpaceData = function(GMM, compSpace_Data, phySpaceBorder){
 
 visualizeSampledTransformation = function(tree, phySpaceBorder, n_data_points = 10000, boundary_grid_size = 0.01){
 
-  sampled_GMM = sampleGMM(phySpaceBorder)
-  phy_Data = simulateGMMData(sampled_GMM, n_data_points)
-  comp_Data = compSpaceData(sampled_GMM, phy_Data)
+  if(n_data_points == 0){
+    sampled_GMM = sampleGMM(phySpaceBorder)
 
-  boundary_data_list = list()
+    x_splits = unique(c(tree$boundaries$L1, tree$boundaries$U1))
+    x_splits = x_splits[2:(length(x_splits)-1)]
 
-  for(i in 1:nrow(tree$boundaries)){
+    y_splits = unique(c(tree$boundaries$L2, tree$boundaries$U2))
+    y_splits = y_splits[2:(length(y_splits)-1)]
 
-    L1 = tree$boundaries[i,]$L1
-    if(L1 == 0){
-      L1 = 0.0001
-    }
-    L2 = tree$boundaries[i,]$L2
-    if(L2 == 0){
-      L2 = 0.0001
-    }
-    U1 = tree$boundaries[i,]$U1
-    if(U1 == 1){
-      U1 = 0.9999
-    }
-    U2 = tree$boundaries[i,]$U2
-    if(U2 == 1){
-      U2 = 0.9999
-    }
+    x_cutoffs = compSpaceData(sampled_GMM, data.frame(X = c(phySpaceBorder[1], phySpaceBorder[3]), Y = y_splits[1], Model = NA))$X
 
-    X_data = seq(L1, U1, boundary_grid_size)
-    if(!(U1 %in% X_data)){
-      X_data = c(X_data, U1)
-    }
+    x_seq = unique(c(seq(x_cutoffs[1], x_cutoffs[2], by = boundary_grid_size), x_cutoffs[2]))
 
-    line_bottom = data.frame(X = X_data, Y = L2, line_id = str_c("box", i, "_b"))
-    line_top = data.frame(X = X_data, Y = U2, line_id = str_c("box", i, "_t"))
-    line_left = data.frame(X = L1, Y = c(L2,U2), line_id = str_c("box", i, "_l"))
-    line_right = data.frame(X = U1, Y = c(L2,U2), line_id = str_c("box", i, "_r"))
+    Y_BoundaryData_Comp = data.frame(X = rep(x_seq, length(y_splits)), Y = rep(y_splits, each = length(x_seq)), Model = rep(1:length(y_splits), each = length(x_seq)))
+    Y_BoundaryData_Phy = phySpaceData(sampled_GMM, compSpace_Data = Y_BoundaryData_Comp, phySpaceBorder = phySpaceBorder)
 
-    boundary_data_list[[i]] = rbind(line_bottom, line_top, line_left, line_right)
+    min_Y_Boundary = min(Y_BoundaryData_Phy$Y) - boundary_grid_size
+    max_Y_Boundary = max(Y_BoundaryData_Phy$Y) + boundary_grid_size
 
+    outerBorder = c(phySpaceBorder[1], min(c(phySpaceBorder[2], min_Y_Boundary)), phySpaceBorder[3], max(c(phySpaceBorder[4], max_Y_Boundary)))
+
+    X_BoundaryData_Phy = phySpaceData(sampled_GMM, compSpace_Data = data.frame(X = x_splits, Y = y_splits[1], Model = NA), phySpaceBorder = phySpaceBorder)
+
+    phySpacePlot = ggplot() +
+      geom_line(data = Y_BoundaryData_Phy, aes(x = X, y = Y, group = Model), color = 'black', size = 0.1) +
+      geom_segment(data = X_BoundaryData_Phy, aes(x = X, y = outerBorder[2], xend = X, yend = outerBorder[4]), color = 'black') +
+      geom_segment(aes(x = outerBorder[1], y = outerBorder[2], xend = outerBorder[1], yend = outerBorder[4]), color = 'black') +
+      geom_segment(aes(x = outerBorder[3], y = outerBorder[2], xend = outerBorder[3], yend = outerBorder[4]), color = 'black') +
+      geom_segment(aes(x = outerBorder[1], y = outerBorder[2], xend = outerBorder[3], yend = outerBorder[2]), color = 'black') +
+      geom_segment(aes(x = outerBorder[1], y = outerBorder[4], xend = outerBorder[3], yend = outerBorder[4]), color = 'black') +
+      ggtitle("Physical Space") + theme(legend.position = "none", plot.title = element_text(hjust = 0.5))
+
+    compSpacePlot = ggplot() +
+      geom_segment(data = tree$boundaries, aes(x = L1, y = L2, xend = L1, yend = U2), color = 'black') +
+      geom_segment(data = tree$boundaries, aes(x = U1, y = L2, xend = U1, yend = U2), color = 'black') +
+      geom_segment(data = tree$boundaries, aes(x = L1, y = L2, xend = U1, yend = L2), color = 'black') +
+      geom_segment(data = tree$boundaries, aes(x = L1, y = U2, xend = U1, yend = U2), color = 'black') +
+      ggtitle("Computational Space") + theme(legend.position = "none", plot.title = element_text(hjust = 0.5)) + xlab("X") + ylab("Y")
+
+    ggarrange(phySpacePlot, compSpacePlot, nrow = 1)
+  } else{
+    sampled_GMM = sampleGMM(phySpaceBorder)
+    phy_Data = simulateGMMData(sampled_GMM, n_data_points)
+    comp_Data = compSpaceData(sampled_GMM, phy_Data)
+
+    x_splits = unique(c(tree$boundaries$L1, tree$boundaries$U1))
+    x_splits = x_splits[2:(length(x_splits)-1)]
+
+    y_splits = unique(c(tree$boundaries$L2, tree$boundaries$U2))
+    y_splits = y_splits[2:(length(y_splits)-1)]
+
+    x_cutoffs = compSpaceData(sampled_GMM, data.frame(X = c(min(phy_Data$X, phySpaceBorder[1]), max(phy_Data$X, phySpaceBorder[3])), Y = y_splits[1], Model = NA))$X
+
+    x_seq = unique(c(seq(x_cutoffs[1], x_cutoffs[2], by = boundary_grid_size), x_cutoffs[2]))
+
+    Y_BoundaryData_Comp = data.frame(X = rep(x_seq, length(y_splits)), Y = rep(y_splits, each = length(x_seq)), Model = rep(1:length(y_splits), each = length(x_seq)))
+    Y_BoundaryData_Phy = phySpaceData(sampled_GMM, compSpace_Data = Y_BoundaryData_Comp, phySpaceBorder = phySpaceBorder)
+
+    min_Y_Boundary = min(Y_BoundaryData_Phy$Y) - boundary_grid_size
+    max_Y_Boundary = max(Y_BoundaryData_Phy$Y) + boundary_grid_size
+
+    outerBorder = c(min(phy_Data$X, phySpaceBorder[1]), min(phy_Data$Y, phySpaceBorder[2], min_Y_Boundary), max(phy_Data$X, phySpaceBorder[3]), max(phy_Data$Y, phySpaceBorder[4], max_Y_Boundary))
+
+    X_BoundaryData_Phy = phySpaceData(sampled_GMM, compSpace_Data = data.frame(X = x_splits, Y = y_splits[1], Model = NA), phySpaceBorder = phySpaceBorder)
+
+    phySpacePlot = ggplot() + geom_point(data = phy_Data, aes(x = X, y = Y, color = as.factor(Model))) +
+      geom_line(data = Y_BoundaryData_Phy, aes(x = X, y = Y, group = Model), color = 'black', size = 0.1) +
+      geom_segment(data = X_BoundaryData_Phy, aes(x = X, y = outerBorder[2], xend = X, yend = outerBorder[4]), color = 'black') +
+      geom_segment(aes(x = outerBorder[1], y = outerBorder[2], xend = outerBorder[1], yend = outerBorder[4]), color = 'black') +
+      geom_segment(aes(x = outerBorder[3], y = outerBorder[2], xend = outerBorder[3], yend = outerBorder[4]), color = 'black') +
+      geom_segment(aes(x = outerBorder[1], y = outerBorder[2], xend = outerBorder[3], yend = outerBorder[2]), color = 'black') +
+      geom_segment(aes(x = outerBorder[1], y = outerBorder[4], xend = outerBorder[3], yend = outerBorder[4]), color = 'black') +
+      ggtitle("Physical Space") + theme(legend.position = "none", plot.title = element_text(hjust = 0.5))
+
+    compSpacePlot = ggplot() + geom_point(data = comp_Data, aes(x = X, y = Y, color = as.factor(Model))) +
+      geom_segment(data = tree$boundaries, aes(x = L1, y = L2, xend = L1, yend = U2), color = 'black') +
+      geom_segment(data = tree$boundaries, aes(x = U1, y = L2, xend = U1, yend = U2), color = 'black') +
+      geom_segment(data = tree$boundaries, aes(x = L1, y = L2, xend = U1, yend = L2), color = 'black') +
+      geom_segment(data = tree$boundaries, aes(x = L1, y = U2, xend = U1, yend = U2), color = 'black') +
+      ggtitle("Computational Space") + theme(legend.position = "none", plot.title = element_text(hjust = 0.5))
+
+    ggarrange(phySpacePlot, compSpacePlot, nrow = 1)
   }
 
-  BoundaryData_Comp = data.frame(do.call(rbind, boundary_data_list))
-  names(BoundaryData_Comp) = c("X","Y","Model")
 
-  BoundaryData_Phy = phySpaceData(sampled_GMM, compSpace_Data = BoundaryData_Comp, phySpaceBorder = phySpaceBorder)
-
-  phySpacePlot = ggplot() + geom_point(data = phy_Data, aes(x = X, y = Y, color = as.factor(Model))) +
-    geom_line(data = BoundaryData_Phy, aes(x = X, y = Y, group = Model), color = 'black', size = 0.1) +
-    ggtitle("Physical Space") + theme(legend.position = "none", plot.title = element_text(hjust = 0.5))
-
-  compSpacePlot = ggplot() + geom_point(data = comp_Data, aes(x = X, y = Y, color = as.factor(Model))) +
-    geom_segment(data = tree$boundaries, aes(x = L1, y = L2, xend = L1, yend = U2), color = 'black') +
-    geom_segment(data = tree$boundaries, aes(x = U1, y = L2, xend = U1, yend = U2), color = 'black') +
-    geom_segment(data = tree$boundaries, aes(x = L1, y = L2, xend = U1, yend = L2), color = 'black') +
-    geom_segment(data = tree$boundaries, aes(x = L1, y = U2, xend = U1, yend = U2), color = 'black') +
-    ggtitle("Computational Space") + theme(legend.position = "none", plot.title = element_text(hjust = 0.5))
-
-  ggarrange(phySpacePlot, compSpacePlot, nrow = 1)
 
 }
 
-tree = generate_grid_tree(0.25, border = c(0,0,1,1))
+tree = generate_grid_tree(0.1, border = c(0,0,1,1))
 
-visualizeSampledTransformation(tree, phySpaceBorder, n_data_points = 1000, boundary_grid_size = 0.001)
+visualizeSampledTransformation(tree, phySpaceBorder, n_data_points = 10000, boundary_grid_size = 0.001)
 
 phySpaceBorder = c(0,0,10,10)
 
