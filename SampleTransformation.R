@@ -82,7 +82,7 @@ get_phySpace_pos = function(GMM, curPos_comp, phySpaceBorder){
 
   }
 
-  x_Invcdf = try(uniroot(invCDF_x_finder, interval = c(phySpaceBorder[1] - (phySpaceBorder[3] - phySpaceBorder[1]), phySpaceBorder[3] + (phySpaceBorder[3] - phySpaceBorder[1]))), silent = TRUE)
+  x_Invcdf = try(uniroot(invCDF_x_finder, interval = c(phySpaceBorder[1] - 3*(phySpaceBorder[3] - phySpaceBorder[1]), phySpaceBorder[3] + 3*(phySpaceBorder[3] - phySpaceBorder[1]))), silent = TRUE)
 
   if(inherits(x_Invcdf, "try-error")) {
     warning("Could not find inverse root for x.")
@@ -108,7 +108,7 @@ get_phySpace_pos = function(GMM, curPos_comp, phySpaceBorder){
 
   }
 
-  y_given_x_Invcdf = try(uniroot(invCDF_y_given_x_finder, interval = c(phySpaceBorder[2] - (phySpaceBorder[4] - phySpaceBorder[2]), phySpaceBorder[4] + (phySpaceBorder[4] - phySpaceBorder[2]))), silent = TRUE)
+  y_given_x_Invcdf = try(uniroot(invCDF_y_given_x_finder, interval = c(phySpaceBorder[2] - 3*(phySpaceBorder[4] - phySpaceBorder[2]), phySpaceBorder[4] + 3*(phySpaceBorder[4] - phySpaceBorder[2]))), silent = TRUE)
 
   if(inherits(y_given_x_Invcdf, "try-error")) {
     warning("Could not find inverse root for y.")
@@ -151,15 +151,13 @@ visualizeSampledTransformation = function(tree, phySpaceBorder, n_data_points = 
     y_splits = unique(c(tree$boundaries$L2, tree$boundaries$U2))
     y_splits = y_splits[2:(length(y_splits)-1)]
 
-    x_cutoffs = compSpaceData(sampled_GMM, data.frame(X = c(phySpaceBorder[1], phySpaceBorder[3]), Y = y_splits[1], Model = NA))$X
-
-    x_seq = unique(c(seq(x_cutoffs[1], x_cutoffs[2], by = boundary_grid_size), x_cutoffs[2]))
+    x_seq = compSpaceData(sampled_GMM, data.frame(X = unique(c(seq(phySpaceBorder[1], phySpaceBorder[3], boundary_grid_size), phySpaceBorder[3])), Y = y_splits[1], Model = NA))$X
 
     Y_BoundaryData_Comp = data.frame(X = rep(x_seq, length(y_splits)), Y = rep(y_splits, each = length(x_seq)), Model = rep(1:length(y_splits), each = length(x_seq)))
     Y_BoundaryData_Phy = phySpaceData(sampled_GMM, compSpace_Data = Y_BoundaryData_Comp, phySpaceBorder = phySpaceBorder)
 
-    min_Y_Boundary = min(Y_BoundaryData_Phy$Y) - boundary_grid_size
-    max_Y_Boundary = max(Y_BoundaryData_Phy$Y) + boundary_grid_size
+    min_Y_Boundary = min(Y_BoundaryData_Phy$Y, na.rm = T) - boundary_grid_size
+    max_Y_Boundary = max(Y_BoundaryData_Phy$Y, na.rm = T) + boundary_grid_size
 
     outerBorder = c(phySpaceBorder[1], min(c(phySpaceBorder[2], min_Y_Boundary)), phySpaceBorder[3], max(c(phySpaceBorder[4], max_Y_Boundary)))
 
@@ -193,15 +191,13 @@ visualizeSampledTransformation = function(tree, phySpaceBorder, n_data_points = 
     y_splits = unique(c(tree$boundaries$L2, tree$boundaries$U2))
     y_splits = y_splits[2:(length(y_splits)-1)]
 
-    x_cutoffs = compSpaceData(sampled_GMM, data.frame(X = c(min(phy_Data$X, phySpaceBorder[1]), max(phy_Data$X, phySpaceBorder[3])), Y = y_splits[1], Model = NA))$X
-
-    x_seq = unique(c(seq(x_cutoffs[1], x_cutoffs[2], by = boundary_grid_size), x_cutoffs[2]))
+    x_seq = compSpaceData(sampled_GMM, data.frame(X = unique(c(seq(min(phy_Data$X, phySpaceBorder[1]), max(phy_Data$X, phySpaceBorder[3]), boundary_grid_size), max(phy_Data$X, phySpaceBorder[3]))), Y = y_splits[1], Model = NA))$X
 
     Y_BoundaryData_Comp = data.frame(X = rep(x_seq, length(y_splits)), Y = rep(y_splits, each = length(x_seq)), Model = rep(1:length(y_splits), each = length(x_seq)))
     Y_BoundaryData_Phy = phySpaceData(sampled_GMM, compSpace_Data = Y_BoundaryData_Comp, phySpaceBorder = phySpaceBorder)
 
-    min_Y_Boundary = min(Y_BoundaryData_Phy$Y) - boundary_grid_size
-    max_Y_Boundary = max(Y_BoundaryData_Phy$Y) + boundary_grid_size
+    min_Y_Boundary = min(Y_BoundaryData_Phy$Y, na.rm = T) - boundary_grid_size
+    max_Y_Boundary = max(Y_BoundaryData_Phy$Y, na.rm = T) + boundary_grid_size
 
     outerBorder = c(min(phy_Data$X, phySpaceBorder[1]), min(phy_Data$Y, phySpaceBorder[2], min_Y_Boundary), max(phy_Data$X, phySpaceBorder[3]), max(phy_Data$Y, phySpaceBorder[4], max_Y_Boundary))
 
@@ -232,7 +228,7 @@ visualizeSampledTransformation = function(tree, phySpaceBorder, n_data_points = 
 
 tree = generate_grid_tree(0.1, border = c(0,0,1,1))
 
-visualizeSampledTransformation(tree, phySpaceBorder, n_data_points = 10000, boundary_grid_size = 0.001)
+visualizeSampledTransformation(tree, phySpaceBorder, n_data_points = 1000, boundary_grid_size = 0.1)
 
 phySpaceBorder = c(0,0,10,10)
 
