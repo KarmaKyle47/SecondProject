@@ -30,8 +30,6 @@ sampleFullCubicSurface_AllModels = function(border_length = 1, cells_per_dim = 1
 
 }
 
-fullTree = finalTree
-
 plotFullTree = function(fullTree, surface_grid_size = 0.01){
 
   num_models = length(fullTree$coefs)
@@ -39,7 +37,7 @@ plotFullTree = function(fullTree, surface_grid_size = 0.01){
 
   typePlots = list()
   surfacePlots = list()
-i=3 # This still needs to be fixed
+
   for(i in 1:num_models){
 
     typePlots[[i]] = plotTransitionRegions(fullTree$boundaries, fullTree$models[,i], str_c("Model ", i, " Regions"))
@@ -55,7 +53,7 @@ i=3 # This still needs to be fixed
     X <- as.numeric(rownames(Value))
     Y <- as.numeric(colnames(Value))
 
-    surfacePlot = plot_ly(x = ~X, y = ~Y, z = ~Value, type = "surface")
+    surfacePlot = plot_ly(x = X, y = Y, z = Value, type = "surface")
 
     surfacePlot = surfacePlot %>% layout(
       title = str_c("Model ", i, " Surface"),
@@ -74,11 +72,6 @@ i=3 # This still needs to be fixed
 
   }
 
-
-
-  typePlots[[3]]
-  surfacePlots[[10]]
-
   names(typePlots) = names(surfacePlots) = str_c("Model",1:num_models)
 
   list(ModelRegions = typePlots, ModelSurfaces = surfacePlots)
@@ -88,4 +81,7 @@ i=3 # This still needs to be fixed
 fullTree = sampleFullCubicSurface_AllModels(k = 0.5, num_models = 10, border_length = 1, cells_per_dim = 10, base_weight = 0.1, trans_prop = 0.99)
 fullTree_Plots = plotFullTree(fullTree)
 
-fullTree_Plots$ModelSurfaces[[2]]
+fullTree_Plots$ModelRegions[[5]]
+fullTree_Plots$ModelSurfaces[[5]]
+
+fullTree_Plots$ModelSurfaces[[5]]
