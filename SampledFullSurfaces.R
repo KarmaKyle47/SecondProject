@@ -1,10 +1,10 @@
-sampleFullCubicSurface_AllModels = function(border_length = 1, cells_per_dim = 10, num_models = 3, k = 1, base_weight = 0.1, trans_prop = 0.9){
+sampleFullCubicSurface_AllModels = function(border_length = 1, cells_per_dim = 10, num_models = 3, k = 1, base_weight = 0.1, trans_prop = 0.9, prior_mean = 1){
 
   tree = generate_grid_tree(grid_size = border_length/cells_per_dim , c(0,0,border_length, border_length))
 
   sampledModels = sample_models_one_pass(tree = tree, num_models = num_models, baseWeight = base_weight)[,6:7]
 
-  rawModelCoefs = replicate(n = num_models, samplePatch_FullTree(tree = tree, k = k)$coefs, simplify = F)
+  rawModelCoefs = replicate(n = num_models, samplePatch_FullTree(tree = tree, k = k, prior_mean = prior_mean)$coefs, simplify = F)
 
   updatedModelCoefs = list()
   regionTypes = c()

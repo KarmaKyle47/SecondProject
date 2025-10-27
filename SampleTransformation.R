@@ -4,19 +4,19 @@ library(MCMCpack)
 library(ggplot2)
 library(ggpubr)
 
-sampleGMM = function(phy_space_border){
+sampleGMM = function(phy_space_border, lambda = 19, border_buffer_perc = 0.1, dim_sigma = 0.1){
 
   phy_x_width = phy_space_border[3] - phy_space_border[1]
   phy_y_width = phy_space_border[4] - phy_space_border[2]
 
-  n_comp = rpois(n = 1,lambda = 19) + 1
+  n_comp = rpois(n = 1,lambda = lambda) + 1
 
-  mu_x = runif(n_comp, min = phy_space_border[1] + (1/10)*phy_x_width, max = phy_space_border[3] - (1/10)*phy_x_width)
-  mu_y = runif(n_comp, min = phy_space_border[2] + (1/10)*phy_y_width, max = phy_space_border[4] - (1/10)*phy_y_width)
+  mu_x = runif(n_comp, min = phy_space_border[1] + border_buffer_perc*phy_x_width, max = phy_space_border[3] - border_buffer_perc*phy_x_width)
+  mu_y = runif(n_comp, min = phy_space_border[2] + border_buffer_perc*phy_y_width, max = phy_space_border[4] - border_buffer_perc*phy_y_width)
 
   mu = matrix(c(mu_x, mu_y), byrow = F, ncol = 2)
 
-  Sigmas = replicate(n_comp, riwish(4, matrix(c((0.1*phy_x_width)^2, 0,0,(0.1*phy_y_width)^2), nrow = 2)), F)
+  Sigmas = replicate(n_comp, riwish(4, matrix(c((dim_sigma*phy_x_width)^2, 0,0,(dim_sigma*phy_y_width)^2), nrow = 2)), F)
 
   wts = as.vector(rdirichlet(n = 1, alpha = rep(1,n_comp)))
 
@@ -373,9 +373,9 @@ ggplot(GMM_Data_Phy, aes(x = X, y = Y, color = as.factor(Model))) + geom_point()
 plotCompPatch = plotFullTree(fullTree)
 plotTransPatch = plotTransformedFullTree(fullTree = fullTree, GMM = GMM, phySpaceBorder, surface_grid_size = 0.01, region_grid_size = 0.001)
 
-plotCompPatch$ModelRegions[[2]]
+plotCompPatch$ModelRegions[[10]]
 
-plotTransPatch$ModelRegions[[2]]
+plotTransPatch$ModelRegions[[10]]
 
 
 plotTransformedRegions(GMM, treeBoundaries = fullTree$boundaries, types = fullTree$models[,2], phySpaceBorder, boundary_grid_size = 0.005)

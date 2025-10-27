@@ -61,7 +61,7 @@ evaluateCubicPatchParXY = function(coef, border, curPos){
   sum(coef * polyTerms)
 }
 
-samplePatch_Unrestricted = function(border, k){
+samplePatch_Unrestricted = function(border, k, prior_mean = 1){
 
   dx = border[3] - border[1]
   dy = border[4] - border[2]
@@ -85,7 +85,7 @@ samplePatch_Unrestricted = function(border, k){
 
   A_inv = solve(A)
 
-  mu = A_inv %*% c(rep(1,4), rep(0, 12))
+  mu = A_inv %*% c(rep(prior_mean,4), rep(0, 12))
 
   sigma = k^2*(A_inv %*% t(A_inv))
 
@@ -95,7 +95,7 @@ samplePatch_Unrestricted = function(border, k){
 
 }
 
-samplePatch_Known_Bottom = function(border, k, BL_coefs, BL_border, BR_coefs, BR_border){
+samplePatch_Known_Bottom = function(border, k, BL_coefs, BL_border, BR_coefs, BR_border, prior_mean = 1){
 
   dx = border[3] - border[1]
   dy = border[4] - border[2]
@@ -135,7 +135,7 @@ samplePatch_Known_Bottom = function(border, k, BL_coefs, BL_border, BR_coefs, BR
 
   known_coefs = c(c00, c01, c10, c11, c20, c21, c30, c31)
 
-  mu_trans = c(rep(1,2), rep(0,6)) - (A[c(3,4,7,8,11,12,15,16), 1:8] %*% known_coefs)
+  mu_trans = c(rep(prior_mean,2), rep(0,6)) - (A[c(3,4,7,8,11,12,15,16), 1:8] %*% known_coefs)
 
   A_inv = solve(A[c(3,4,7,8,11,12,15,16), 9:16])
 
@@ -148,7 +148,7 @@ samplePatch_Known_Bottom = function(border, k, BL_coefs, BL_border, BR_coefs, BR
 
 }
 
-samplePatch_Known_Left = function(border, k, BL_coefs, BL_border, TL_coefs, TL_border){
+samplePatch_Known_Left = function(border, k, BL_coefs, BL_border, TL_coefs, TL_border, prior_mean = 1){
 
   dx = border[3] - border[1]
   dy = border[4] - border[2]
@@ -188,7 +188,7 @@ samplePatch_Known_Left = function(border, k, BL_coefs, BL_border, TL_coefs, TL_b
 
   known_coefs = c(c00, c01, c10, c11, c02, c03, c12, c13)
 
-  mu_trans = c(rep(1,2), rep(0,6)) - (A[c(2,4,6,8,10,12,14,16), c(1:4,9:12)] %*% known_coefs)
+  mu_trans = c(rep(prior_mean,2), rep(0,6)) - (A[c(2,4,6,8,10,12,14,16), c(1:4,9:12)] %*% known_coefs)
 
   A_inv = solve(A[c(2,4,6,8,10,12,14,16), c(5:8,13:16)])
 
@@ -202,7 +202,7 @@ samplePatch_Known_Left = function(border, k, BL_coefs, BL_border, TL_coefs, TL_b
 
 }
 
-samplePatch_Known_Bottom_and_Left = function(border, k, BL_coefs, BL_border, BR_coefs, BR_border, TL_coefs, TL_border){
+samplePatch_Known_Bottom_and_Left = function(border, k, BL_coefs, BL_border, BR_coefs, BR_border, TL_coefs, TL_border, prior_mean = 1){
 
   dx = border[3] - border[1]
   dy = border[4] - border[2]
@@ -251,7 +251,7 @@ samplePatch_Known_Bottom_and_Left = function(border, k, BL_coefs, BL_border, BR_
 
   known_coefs = c(c00, c01, c10, c11, c20, c21, c30, c31, c02, c03, c12, c13)
 
-  mu_trans = c(1,0,0,0) - (A[c(4,8,12,16), 1:12] %*% known_coefs)
+  mu_trans = c(prior_mean,0,0,0) - (A[c(4,8,12,16), 1:12] %*% known_coefs)
 
   A_inv = solve(A[c(4,8,12,16), 13:16])
 
@@ -321,7 +321,7 @@ samplePatch_Known_Corners = function(border, k, BL_coefs, BL_border, BR_coefs, B
 
 }
 
-samplePatch_FullTree = function(tree, k){
+samplePatch_FullTree = function(tree, k, prior_mean = 1){
 
   treeBoundaries = orderBoundaries_GeminiCleaned(tree, F)
   label_order = treeBoundaries$order
@@ -351,7 +351,7 @@ samplePatch_FullTree = function(tree, k){
 
     if(num_corners_defined == 0){
 
-      curCoefs = samplePatch_Unrestricted(border = cur_border, k = k)
+      curCoefs = samplePatch_Unrestricted(border = cur_border, k = k, prior_mean = prior_mean)
       sampledCoefs[cur_index,] = curCoefs
 
     } else if(num_corners_defined == 2){
@@ -368,7 +368,7 @@ samplePatch_FullTree = function(tree, k){
         BR_coefs = sampledCoefs[BR_index,]
         BR_border = as.numeric(treeBoundaries[BR_index, 1:4])
 
-        curCoefs = samplePatch_Known_Bottom(cur_border, k = k, BL_coefs, BL_border, BR_coefs, BR_border)
+        curCoefs = samplePatch_Known_Bottom(cur_border, k = k, BL_coefs, BL_border, BR_coefs, BR_border, prior_mean = prior_mean)
         sampledCoefs[cur_index,] = curCoefs
 
       } else{
@@ -383,7 +383,7 @@ samplePatch_FullTree = function(tree, k){
         TL_coefs = sampledCoefs[TL_index,]
         TL_border = as.numeric(treeBoundaries[TL_index, 1:4])
 
-        curCoefs = samplePatch_Known_Left(cur_border, k = k, BL_coefs, BL_border, TL_coefs, TL_border)
+        curCoefs = samplePatch_Known_Left(cur_border, k = k, BL_coefs, BL_border, TL_coefs, TL_border, prior_mean = prior_mean)
         sampledCoefs[cur_index,] = curCoefs
 
       }
@@ -405,7 +405,7 @@ samplePatch_FullTree = function(tree, k){
       TL_coefs = sampledCoefs[TL_index,]
       TL_border = as.numeric(treeBoundaries[TL_index, 1:4])
 
-      curCoefs = samplePatch_Known_Bottom_and_Left(cur_border, k = k, BL_coefs, BL_border, BR_coefs, BR_border, TL_coefs, TL_border)
+      curCoefs = samplePatch_Known_Bottom_and_Left(cur_border, k = k, BL_coefs, BL_border, BR_coefs, BR_border, TL_coefs, TL_border, prior_mean = prior_mean)
       sampledCoefs[cur_index,] = curCoefs
 
 
