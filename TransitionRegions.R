@@ -201,6 +201,160 @@ sampleTransitions = function(sampledTree, sampledModels, model, trans_prop = 0.3
   TransitionTree
 }
 
+sampleTransitionSurface_ByGrid = function(tree, sampledModels, model, trans_prop, k, prior_mean = 1){
+
+  #Constructing all possible boundary regions
+
+  if(missing(trans_prop)){
+    trans_prop = rbeta(1, 10, 90)
+  }
+
+  x_grid_size = tree$boundaries[1,"U1"] - tree$boundaries[1,"L1"]
+  y_grid_size = tree$boundaries[1,"U2"] - tree$boundaries[1,"L2"]
+
+  trans_length = (x_grid_size + y_grid_size - sqrt((x_grid_size + y_grid_size)^2 - 4*trans_prop*x_grid_size*y_grid_size))/4
+
+  newBoundaries = tree$boundaries
+  newBoundaries$Type = "On"
+  newBoundaries$Type[sampledModels[,1] != model & sampledModels[,2] != model] = "Off"
+  #newBoundaries$OGIndex = 1:nrow(newBoundaries)
+
+  newSplits = tree$split
+
+  x_cells_num = (tree$border[3] - tree$border[1])/x_grid_size
+  y_cells_num = (tree$border[4] - tree$border[2])/x_grid_size
+
+  for(i in 1:x_cells_num){
+
+    curSplitLocLow = (i-1)*x_grid_size + trans_length
+    curSplitLocHigh = i*x_grid_size - trans_length
+    cellsToSplit = which(newBoundaries$L1 < curSplitLocLow & newBoundaries$U1 > curSplitLocHigh)
+    cellTypes = newBoundaries[cellsToSplit,]$Type
+    #cellOGIndex = newBoundaries[cellsToSplit,]$OGIndex
+    n_cells = length(cellsToSplit)
+
+    curSplits = data.frame(splits = c(rep(curSplitLocLow, n_cells), rep(curSplitLocHigh, n_cells)), dim = 1, split_part = c(cellsToSplit, 1:n_cells + nrow(newBoundaries)))
+    newSplits = rbind(newSplits, curSplits)
+
+    newBoundaries[cellsToSplit,]$U1 = curSplitLocLow
+    newBoundaries[cellsToSplit,]$Type = "T"
+
+    curBoundaries = data.frame(L1 = c(rep(curSplitLocLow, n_cells), rep(curSplitLocHigh, n_cells)), L2 = rep(newBoundaries[cellsToSplit,]$L2,2), U1 = c(rep(curSplitLocHigh, n_cells), rep(curSplitLocHigh + trans_length, n_cells)), U2 = rep(newBoundaries[cellsToSplit,]$U2,2), Type = c(cellTypes, rep("T", n_cells)))#, OGIndex = rep(cellOGIndex, 2))
+
+    newBoundaries = rbind(newBoundaries, curBoundaries)
+
+  }
+
+
+  for(i in 1:y_cells_num){
+
+    curSplitLocLow = (i-1)*y_grid_size + trans_length
+    curSplitLocHigh = i*y_grid_size - trans_length
+    cellsToSplit = which(newBoundaries$L2 < curSplitLocLow & newBoundaries$U2 > curSplitLocHigh)
+    cellTypes = newBoundaries[cellsToSplit,]$Type
+    #cellOGIndex = newBoundaries[cellsToSplit,]$OGIndex
+    n_cells = length(cellsToSplit)
+
+    curSplits = data.frame(splits = c(rep(curSplitLocLow, n_cells), rep(curSplitLocHigh, n_cells)), dim = 2, split_part = c(cellsToSplit, 1:n_cells + nrow(newBoundaries)))
+    newSplits = rbind(newSplits, curSplits)
+
+    newBoundaries[cellsToSplit,]$U2 = curSplitLocLow
+    newBoundaries[cellsToSplit,]$Type = "T"
+
+    curBoundaries = data.frame(L1 = rep(newBoundaries[cellsToSplit,]$L1,2), L2 = c(rep(curSplitLocLow, n_cells), rep(curSplitLocHigh, n_cells)), U1 = rep(newBoundaries[cellsToSplit,]$U1,2), U2 = c(rep(curSplitLocHigh, n_cells), rep(curSplitLocHigh + trans_length, n_cells)), Type = c(cellTypes, rep("T", n_cells)))#, OGIndex = rep(cellOGIndex, 2))
+
+    newBoundaries = rbind(newBoundaries, curBoundaries)
+
+  }
+
+  #Defining true boundary regions
+
+  transition_index = which(newBoundaries$Type == "T")
+
+  neighbors_FirstPass = apply(matrix(transition_index), MARGIN = 1,
+                              FUN = function(i){
+                                curNeighbors = find_neighbors(all_boundaries = newBoundaries, index = i, sep = F, include_corners = T)
+                                neighborTypes = newBoundaries$Type[curNeighbors]
+
+                                if(sum(neighborTypes == "On") > 0){
+                                  "On"
+                                } else{
+                                  "T"
+                                }
+
+                              })
+
+  newBoundaries$Type[transition_index] = neighbors_FirstPass
+
+  transition_index = which(newBoundaries$Type == "T")
+
+  neighbors_SecondPass = apply(matrix(transition_index), MARGIN = 1,
+                               FUN = function(i){
+                                 curNeighbors = find_neighbors(all_boundaries = newBoundaries, index = i, sep = F, include_corners = T)
+                                 neighborTypes = newBoundaries$Type[curNeighbors]
+
+                                 if(sum(neighborTypes == "On") == 0){
+                                   "Off"
+                                 } else{
+                                   "T"
+                                 }
+
+                               })
+  newBoundaries$Type[transition_index] = neighbors_SecondPass
+
+  #Sampling coefficients by sampling values and partial derivatives at the grid intersections
+
+  GridValues = c()
+  GridParXs = c()
+  GridParYs = c()
+  GridParXYs = c()
+
+  x_grid_points = sort(unique(c(newBoundaries$L1, newBoundaries$U1)))
+  y_grid_points = sort(unique(c(newBoundaries$L2, newBoundaries$U2)))
+
+  all_grid_point = expand.grid(x_grid_points, y_grid_points)
+
+  for(i in 1:nrow(all_grid_point)){
+
+    cur_BL_index = which(newBoundaries$U1 == all_grid_point[i,1] & newBoundaries$U2 == all_grid_point[i,2])
+    cur_BR_index = which(newBoundaries$L1 == all_grid_point[i,1] & newBoundaries$U2 == all_grid_point[i,2])
+    cur_TL_index = which(newBoundaries$U1 == all_grid_point[i,1] & newBoundaries$L2 == all_grid_point[i,2])
+    cur_TR_index = which(newBoundaries$L1 == all_grid_point[i,1] & newBoundaries$L2 == all_grid_point[i,2])
+
+    cur_neighbor_types = newBoundaries$Type[c(cur_BL_index, cur_BR_index, cur_TL_index, cur_TR_index)]
+
+    if(sum(cur_neighbor_types == "On") > 0){
+
+      GridValues = c(GridValues, rnorm(1, mean = prior_mean, sd = k))
+      GridParXs = c(GridParXs, rnorm(1, mean = 0, sd = k))
+      GridParYs = c(GridParYs, rnorm(1, mean = 0, sd = k))
+      GridParXYs = c(GridParXYs, rnorm(1, mean = 0, sd = k))
+
+    } else{
+
+      GridValues = c(GridValues, 0)
+      GridParXs = c(GridParXs, 0)
+      GridParYs = c(GridParYs, 0)
+      GridParXYs = c(GridParXYs, 0)
+
+    }
+
+  }
+
+
+  Coefs = calculateSurface_KnownCorners(newBoundaries[,1:4], GridValues, GridParXs, GridParYs, GridParXYs)
+
+
+
+  TransitionTree = list(split = newSplits,
+                        boundaries = newBoundaries,
+                        dimension = tree$dimension,
+                        border = tree$border,
+                        coefs = Coefs)
+  TransitionTree
+
+}
+
 plotTransitionRegions = function(treeBoundaries,types, title = ""){
 
   ShadeData = data.frame(xmin = treeBoundaries$L1,

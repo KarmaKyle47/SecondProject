@@ -4,25 +4,21 @@ sampleFullCubicSurface_AllModels = function(border_length = 1, cells_per_dim = 1
 
   sampledModels = sample_models_one_pass(tree = tree, num_models = num_models, baseWeight = base_weight)[,6:7]
 
-  rawModelCoefs = replicate(n = num_models, samplePatch_FullTree(tree = tree, k = k, prior_mean = prior_mean)$coefs, simplify = F)
-
-  updatedModelCoefs = list()
+  sampledCoefs = list()
   regionTypes = c()
 
   for(i in 1:num_models){
 
-    cur_sampledTree = tree
-    cur_sampledTree$coefs = rawModelCoefs[[i]]
-    cur_UpdatedTree = sampleTransitions(sampledTree = cur_sampledTree, sampledModels = sampledModels, model = i, trans_prop = trans_prop)
-    updatedModelCoefs[[i]] = cur_UpdatedTree$coefs
-    regionTypes = cbind(regionTypes, cur_UpdatedTree$boundaries$Type)
+    cur_SampledTree = sampleTransitionSurface_ByGrid(tree, sampledModels, model = i, trans_prop, k, prior_mean)
+    sampledCoefs[[i]] = cur_SampledTree$coefs
+    regionTypes = cbind(regionTypes, cur_SampledTree$boundaries$Type)
 
   }
 
-  finalTree = cur_UpdatedTree
+  finalTree = cur_SampledTree
 
   finalTree$boundaries = finalTree$boundaries[,1:4]
-  finalTree$coefs = updatedModelCoefs
+  finalTree$coefs = sampledCoefs
   finalTree$models = data.frame(regionTypes)
   names(finalTree$models) = str_c("Model",1:num_models)
 
@@ -78,7 +74,7 @@ plotFullTree = function(fullTree, surface_grid_size = 0.01){
 
 }
 
-fullTree = sampleFullCubicSurface_AllModels(k = 0.5, num_models = 10, border_length = 1, cells_per_dim = 10, base_weight = 0.1, trans_prop = 0.99)
+fullTree = sampleFullCubicSurface_AllModels(k = 0.1, num_models = 10, border_length = 1, cells_per_dim = 10, base_weight = 0.1, trans_prop = 8/9)
 fullTree_Plots = plotFullTree(fullTree)
 
 fullTree_Plots$ModelRegions[[5]]

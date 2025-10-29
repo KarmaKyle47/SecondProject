@@ -307,8 +307,6 @@ samplePatch_Known_Corners = function(border, k, BL_coefs, BL_border, BR_coefs, B
   Cy = evaluateCubicPatchParY(coef = temp_coefs, border = border, curPos = c(border[3], border[4]))
   Cxy = evaluateCubicPatchParXY(coef = temp_coefs, border = border, curPos = c(border[3], border[4]))
 
-  #Sign Errors
-
   c22 = ((par_XY_TR - Cxy)*dx*dy - 3*(par_Y_TR - Cy)*dy - 3*(par_X_TR - Cx)*dx + 9*(value_TR - Cz))/(dx^2*dy^2)
   c23 = (-1*(par_XY_TR - Cxy)*dx*dy + 3*(par_Y_TR - Cy)*dy + 2*(par_X_TR - Cx)*dx - 6*(value_TR - Cz))/(dx^2*dy^3)
   c32 = (-1*(par_XY_TR - Cxy)*dx*dy + 2*(par_Y_TR - Cy)*dy + 3*(par_X_TR - Cx)*dx - 6*(value_TR - Cz))/(dx^3*dy^2)
@@ -318,6 +316,81 @@ samplePatch_Known_Corners = function(border, k, BL_coefs, BL_border, BR_coefs, B
   known_coefs = c(c00, c01, c10, c11, c20, c21, c30, c31, c02, c03, c12, c13, c22, c23, c32, c33)
 
   known_coefs
+
+}
+
+#CornerVectors -> BL, BR, TL, TR
+
+calculatePatch_KnownDerivates = function(border, CornerValues, CornerParXs, CornerParYs, CornerParXYs){
+
+  dx = border[3] - border[1]
+  dy = border[4] - border[2]
+
+  c00 = CornerValues[1]
+  c01 = CornerParYs[1]
+  c10 = CornerParXs[1]
+  c11 = CornerParXYs[1]
+
+  c20 = (-1*CornerParXs[2]*dx + 3*CornerValues[2] - 3*c00 - 2*c10*dx)/(dx^2)
+  c21 = (-1*CornerParXYs[2]*dx + 3*CornerParYs[2] - 3*c01 - 2*c11*dx)/(dx^2)
+  c30 = (CornerParXs[2]*dx - 2*CornerValues[2] + 2*c00 + c10*dx)/(dx^3)
+  c31 = (CornerParXYs[2]*dx - 2*CornerParYs[2] + 2*c01 + c11*dx)/(dx^3)
+
+  c02 = (-1*CornerParYs[3]*dy + 3*CornerValues[3] - 3*c00 - 2*c01*dy)/(dy^2)
+  c12 = (-1*CornerParXYs[3]*dy + 3*CornerParXs[3] - 3*c10 - 2*c11*dy)/(dy^2)
+  c03 = (CornerParYs[3]*dy - 2*CornerValues[3] + 2*c00 + c01*dy)/(dy^3)
+  c13 = (CornerParXYs[3]*dy - 2*CornerParXs[3] + 2*c10 + c11*dy)/(dy^3)
+
+  temp_coefs = c(c00, c01, c10, c11, c20, c21, c30, c31, c02, c03, c12, c13, 0, 0, 0, 0)
+
+  Cz = evaluateCubicPatchValue(coef = temp_coefs, border = border, curPos = c(border[3], border[4]))
+  Cx = evaluateCubicPatchParX(coef = temp_coefs, border = border, curPos = c(border[3], border[4]))
+  Cy = evaluateCubicPatchParY(coef = temp_coefs, border = border, curPos = c(border[3], border[4]))
+  Cxy = evaluateCubicPatchParXY(coef = temp_coefs, border = border, curPos = c(border[3], border[4]))
+
+  c22 = ((CornerParXYs[4] - Cxy)*dx*dy - 3*(CornerParYs[4] - Cy)*dy - 3*(CornerParXs[4] - Cx)*dx + 9*(CornerValues[4] - Cz))/(dx^2*dy^2)
+  c23 = (-1*(CornerParXYs[4] - Cxy)*dx*dy + 3*(CornerParYs[4] - Cy)*dy + 2*(CornerParXs[4] - Cx)*dx - 6*(CornerValues[4] - Cz))/(dx^2*dy^3)
+  c32 = (-1*(CornerParXYs[4] - Cxy)*dx*dy + 2*(CornerParYs[4] - Cy)*dy + 3*(CornerParXs[4] - Cx)*dx - 6*(CornerValues[4] - Cz))/(dx^3*dy^2)
+  c33 = ((CornerParXYs[4] - Cxy)*dx*dy - 2*(CornerParYs[4] - Cy)*dy - 2*(CornerParXs[4] - Cx)*dx + 4*(CornerValues[4] - Cz))/(dx^3*dy^3)
+
+
+  known_coefs = c(c00, c01, c10, c11, c20, c21, c30, c31, c02, c03, c12, c13, c22, c23, c32, c33)
+
+  known_coefs
+
+}
+
+#GridVectors -> BL corner of entire grid moving L to R then bottom to top
+
+calculateSurface_KnownCorners = function(boundaries, GridValues, GridParXs, GridParYs, GridParXYs){
+
+  x_grid = sort(unique(c(boundaries$L1, boundaries$U1)))
+  y_grid = sort(unique(c(boundaries$L2, boundaries$U2)))
+
+  x_grid_len = length(x_grid)
+  y_grid_len = length(y_grid)
+
+  Coefs = matrix(nrow = nrow(boundaries), ncol = 16)
+
+  for(i in 1:nrow(boundaries)){
+
+    cur_border = as.numeric(boundaries[i,1:4])
+
+    x_index = which(x_grid == cur_border[1])
+    y_index = which(y_grid == cur_border[2])
+
+    cur_corner_indices = c(0:1 + (y_index-1)*x_grid_len + x_index, 0:1 + (y_index)*x_grid_len + x_index)
+
+    cur_CornerValues = GridValues[cur_corner_indices]
+    cur_CornerParXs = GridParXs[cur_corner_indices]
+    cur_CornerParYs = GridParYs[cur_corner_indices]
+    cur_CornerParXYs = GridParXYs[cur_corner_indices]
+
+    Coefs[i,] = calculatePatch_KnownDerivates(cur_border, cur_CornerValues, cur_CornerParXs, cur_CornerParYs, cur_CornerParXYs)
+
+  }
+
+  Coefs
 
 }
 
