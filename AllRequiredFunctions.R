@@ -494,6 +494,8 @@ sample_models_one_pass = function(tree, num_models, baseWeight = 0.1){
 
 }
 
+#Sampling Trajectories
+
 evaluateCubicPatchValue = function(coef, border, curPos){
 
   x_0 = border[1]
@@ -625,7 +627,59 @@ calculateSurface_KnownCorners = function(boundaries, GridValues, GridParXs, Grid
 
 }
 
+tree = baseTree
+sampledModels = base_models
+model = 2
+trans_prop
+
+
 sampleTransitionSurface_ByGrid = function(tree, sampledModels, model, trans_prop, k, prior_mean = 1){
+
+  #Sampling coefficients by sampling values and partial derivatives at the grid intersections
+
+  baseBoundaries = tree$boundaries
+  baseBoundaries$Type = "On"
+  baseBoundaries$Type[sampledModels[,1] != model & sampledModels[,2] != model] = "Off"
+
+  baseGridValues = c()
+  baseGridParXs = c()
+  baseGridParYs = c()
+  baseGridParXYs = c()
+
+  base_x_grid_points = sort(unique(c(baseBoundaries$L1, baseBoundaries$U1)))
+  base_y_grid_points = sort(unique(c(baseBoundaries$L2, baseBoundaries$U2)))
+
+  base_x_grid_len = length(base_x_grid_points)
+  base_y_grid_len = length(base_y_grid_points)
+
+  base_grid_points = expand.grid(base_x_grid_points, base_y_grid_points)
+
+  for(i in 1:nrow(base_grid_points)){
+
+    cur_BL_index = which(baseBoundaries$U1 == base_grid_points[i,1] & baseBoundaries$U2 == base_grid_points[i,2])
+    cur_BR_index = which(baseBoundaries$L1 == base_grid_points[i,1] & baseBoundaries$U2 == base_grid_points[i,2])
+    cur_TL_index = which(baseBoundaries$U1 == base_grid_points[i,1] & baseBoundaries$L2 == base_grid_points[i,2])
+    cur_TR_index = which(baseBoundaries$L1 == base_grid_points[i,1] & baseBoundaries$L2 == base_grid_points[i,2])
+
+    cur_neighbor_types = baseBoundaries$Type[c(cur_BL_index, cur_BR_index, cur_TL_index, cur_TR_index)]
+
+    if(sum(cur_neighbor_types == "On") > 0){
+
+      baseGridValues = c(baseGridValues, rnorm(1, mean = prior_mean, sd = k))
+      baseGridParXs = c(baseGridParXs, rnorm(1, mean = 0, sd = k))
+      baseGridParYs = c(baseGridParYs, rnorm(1, mean = 0, sd = k))
+      baseGridParXYs = c(baseGridParXYs, rnorm(1, mean = 0, sd = k))
+
+    } else{
+
+      baseGridValues = c(baseGridValues, 0)
+      baseGridParXs = c(baseGridParXs, 0)
+      baseGridParYs = c(baseGridParYs, 0)
+      baseGridParXYs = c(baseGridParXYs, 0)
+
+    }
+
+  }
 
   #Constructing all possible boundary regions
 
@@ -641,7 +695,7 @@ sampleTransitionSurface_ByGrid = function(tree, sampledModels, model, trans_prop
   newBoundaries = tree$boundaries
   newBoundaries$Type = "On"
   newBoundaries$Type[sampledModels[,1] != model & sampledModels[,2] != model] = "Off"
-  #newBoundaries$OGIndex = 1:nrow(newBoundaries)
+  newBoundaries$OGIndex = 1:nrow(newBoundaries)
 
   newSplits = tree$split
 
@@ -654,7 +708,7 @@ sampleTransitionSurface_ByGrid = function(tree, sampledModels, model, trans_prop
     curSplitLocHigh = i*x_grid_size - trans_length
     cellsToSplit = which(newBoundaries$L1 < curSplitLocLow & newBoundaries$U1 > curSplitLocHigh)
     cellTypes = newBoundaries[cellsToSplit,]$Type
-    #cellOGIndex = newBoundaries[cellsToSplit,]$OGIndex
+    cellOGIndex = newBoundaries[cellsToSplit,]$OGIndex
     n_cells = length(cellsToSplit)
 
     curSplits = data.frame(splits = c(rep(curSplitLocLow, n_cells), rep(curSplitLocHigh, n_cells)), dim = 1, split_part = c(cellsToSplit, 1:n_cells + nrow(newBoundaries)))
@@ -663,7 +717,7 @@ sampleTransitionSurface_ByGrid = function(tree, sampledModels, model, trans_prop
     newBoundaries[cellsToSplit,]$U1 = curSplitLocLow
     newBoundaries[cellsToSplit,]$Type = "T"
 
-    curBoundaries = data.frame(L1 = c(rep(curSplitLocLow, n_cells), rep(curSplitLocHigh, n_cells)), L2 = rep(newBoundaries[cellsToSplit,]$L2,2), U1 = c(rep(curSplitLocHigh, n_cells), rep(curSplitLocHigh + trans_length, n_cells)), U2 = rep(newBoundaries[cellsToSplit,]$U2,2), Type = c(cellTypes, rep("T", n_cells)))#, OGIndex = rep(cellOGIndex, 2))
+    curBoundaries = data.frame(L1 = c(rep(curSplitLocLow, n_cells), rep(curSplitLocHigh, n_cells)), L2 = rep(newBoundaries[cellsToSplit,]$L2,2), U1 = c(rep(curSplitLocHigh, n_cells), rep(curSplitLocHigh + trans_length, n_cells)), U2 = rep(newBoundaries[cellsToSplit,]$U2,2), Type = c(cellTypes, rep("T", n_cells)), OGIndex = rep(cellOGIndex, 2))
 
     newBoundaries = rbind(newBoundaries, curBoundaries)
 
@@ -676,7 +730,7 @@ sampleTransitionSurface_ByGrid = function(tree, sampledModels, model, trans_prop
     curSplitLocHigh = i*y_grid_size - trans_length
     cellsToSplit = which(newBoundaries$L2 < curSplitLocLow & newBoundaries$U2 > curSplitLocHigh)
     cellTypes = newBoundaries[cellsToSplit,]$Type
-    #cellOGIndex = newBoundaries[cellsToSplit,]$OGIndex
+    cellOGIndex = newBoundaries[cellsToSplit,]$OGIndex
     n_cells = length(cellsToSplit)
 
     curSplits = data.frame(splits = c(rep(curSplitLocLow, n_cells), rep(curSplitLocHigh, n_cells)), dim = 2, split_part = c(cellsToSplit, 1:n_cells + nrow(newBoundaries)))
@@ -685,7 +739,7 @@ sampleTransitionSurface_ByGrid = function(tree, sampledModels, model, trans_prop
     newBoundaries[cellsToSplit,]$U2 = curSplitLocLow
     newBoundaries[cellsToSplit,]$Type = "T"
 
-    curBoundaries = data.frame(L1 = rep(newBoundaries[cellsToSplit,]$L1,2), L2 = c(rep(curSplitLocLow, n_cells), rep(curSplitLocHigh, n_cells)), U1 = rep(newBoundaries[cellsToSplit,]$U1,2), U2 = c(rep(curSplitLocHigh, n_cells), rep(curSplitLocHigh + trans_length, n_cells)), Type = c(cellTypes, rep("T", n_cells)))#, OGIndex = rep(cellOGIndex, 2))
+    curBoundaries = data.frame(L1 = rep(newBoundaries[cellsToSplit,]$L1,2), L2 = c(rep(curSplitLocLow, n_cells), rep(curSplitLocHigh, n_cells)), U1 = rep(newBoundaries[cellsToSplit,]$U1,2), U2 = c(rep(curSplitLocHigh, n_cells), rep(curSplitLocHigh + trans_length, n_cells)), Type = c(cellTypes, rep("T", n_cells)), OGIndex = rep(cellOGIndex, 2))
 
     newBoundaries = rbind(newBoundaries, curBoundaries)
 
@@ -726,7 +780,7 @@ sampleTransitionSurface_ByGrid = function(tree, sampledModels, model, trans_prop
                                })
   newBoundaries$Type[transition_index] = neighbors_SecondPass
 
-  #Sampling coefficients by sampling values and partial derivatives at the grid intersections
+  #Updating Grid quantities
 
   GridValues = c()
   GridParXs = c()
@@ -736,23 +790,40 @@ sampleTransitionSurface_ByGrid = function(tree, sampledModels, model, trans_prop
   x_grid_points = sort(unique(c(newBoundaries$L1, newBoundaries$U1)))
   y_grid_points = sort(unique(c(newBoundaries$L2, newBoundaries$U2)))
 
-  all_grid_point = expand.grid(x_grid_points, y_grid_points)
+  all_grid_points = expand.grid(x_grid_points, y_grid_points)
 
-  for(i in 1:nrow(all_grid_point)){
+  for(i in 1:nrow(all_grid_points)){
 
-    cur_BL_index = which(newBoundaries$U1 == all_grid_point[i,1] & newBoundaries$U2 == all_grid_point[i,2])
-    cur_BR_index = which(newBoundaries$L1 == all_grid_point[i,1] & newBoundaries$U2 == all_grid_point[i,2])
-    cur_TL_index = which(newBoundaries$U1 == all_grid_point[i,1] & newBoundaries$L2 == all_grid_point[i,2])
-    cur_TR_index = which(newBoundaries$L1 == all_grid_point[i,1] & newBoundaries$L2 == all_grid_point[i,2])
+    cur_grid_point = as.numeric(all_grid_points[i,])
+
+    cur_BL_index = which(newBoundaries$U1 == cur_grid_point[1] & newBoundaries$U2 == cur_grid_point[2])
+    cur_BR_index = which(newBoundaries$L1 == cur_grid_point[1] & newBoundaries$U2 == cur_grid_point[2])
+    cur_TL_index = which(newBoundaries$U1 == cur_grid_point[1] & newBoundaries$L2 == cur_grid_point[2])
+    cur_TR_index = which(newBoundaries$L1 == cur_grid_point[1] & newBoundaries$L2 == cur_grid_point[2])
 
     cur_neighbor_types = newBoundaries$Type[c(cur_BL_index, cur_BR_index, cur_TL_index, cur_TR_index)]
 
     if(sum(cur_neighbor_types == "On") > 0){
 
-      GridValues = c(GridValues, rnorm(1, mean = prior_mean, sd = k))
-      GridParXs = c(GridParXs, rnorm(1, mean = 0, sd = k))
-      GridParYs = c(GridParYs, rnorm(1, mean = 0, sd = k))
-      GridParXYs = c(GridParXYs, rnorm(1, mean = 0, sd = k))
+      curOGIndex = which(baseBoundaries$L1 <= cur_grid_point[1] & baseBoundaries$U1 >= cur_grid_point[1] & baseBoundaries$L2 <= cur_grid_point[2] & baseBoundaries$U2 >= cur_grid_point[2])
+      curOGIndex = curOGIndex[baseBoundaries$Type[curOGIndex] == "On"][1]
+      cur_OGBorder = as.numeric(baseBoundaries[curOGIndex, 1:4])
+
+      cur_OG_xIndex = which(base_x_grid_points == cur_OGBorder[1])
+      cur_OG_yIndex = which(base_y_grid_points == cur_OGBorder[2])
+
+      cur_OG_cornerIndices = c(0:1 + (cur_OG_yIndex-1)*base_x_grid_len + cur_OG_xIndex, 0:1 + (cur_OG_yIndex)*base_x_grid_len + cur_OG_xIndex)
+
+      OGPatchCoefs = calculatePatch_KnownDerivates(border = as.numeric(baseBoundaries[curOGIndex, 1:4]),
+                                                   CornerValues = baseGridValues[cur_OG_cornerIndices],
+                                                   CornerParXs = baseGridParXs[cur_OG_cornerIndices],
+                                                   CornerParYs = baseGridParYs[cur_OG_cornerIndices],
+                                                   CornerParXYs = baseGridParXYs[cur_OG_cornerIndices])
+
+      GridValues = c(GridValues, evaluateCubicPatchValue(coef = OGPatchCoefs, border = cur_OGBorder, curPos = cur_grid_point))
+      GridParXs = c(GridParXs, evaluateCubicPatchParX(coef = OGPatchCoefs, border = cur_OGBorder, curPos = cur_grid_point))
+      GridParYs = c(GridParYs, evaluateCubicPatchParY(coef = OGPatchCoefs, border = cur_OGBorder, curPos = cur_grid_point))
+      GridParXYs = c(GridParXYs, evaluateCubicPatchParXY(coef = OGPatchCoefs, border = cur_OGBorder, curPos = cur_grid_point))
 
     } else{
 
@@ -768,8 +839,6 @@ sampleTransitionSurface_ByGrid = function(tree, sampledModels, model, trans_prop
 
   Coefs = calculateSurface_KnownCorners(newBoundaries[,1:4], GridValues, GridParXs, GridParYs, GridParXYs)
 
-
-
   TransitionTree = list(split = newSplits,
                         boundaries = newBoundaries,
                         dimension = tree$dimension,
@@ -779,7 +848,7 @@ sampleTransitionSurface_ByGrid = function(tree, sampledModels, model, trans_prop
 
 }
 
-sampleFullCubicSurface_AllModels = function(border_length = 1, cells_per_dim = 10, num_models = 3, k = 1, base_weight = 0.1, trans_prop = 0.9, prior_mean = 1){
+sampleFullCubicSurface_AllModels = function(border_length = 1, cells_per_dim = 10, num_models = 3, k = 1, base_weight = 0.1, trans_prop = 8/9, prior_mean = 1){
 
   tree = generate_grid_tree(grid_size = border_length/cells_per_dim , c(0,0,border_length, border_length))
 

@@ -404,6 +404,7 @@ generate_grid_tree <- function(grid_size, border) {
   )
 
   final_tree$boundaries = treeBorders(final_tree)
+  final_tree$boundaries = final_tree$boundaries[order(final_tree$boundaries[,2], final_tree$boundaries[,1]),]
 
   return(final_tree)
 }

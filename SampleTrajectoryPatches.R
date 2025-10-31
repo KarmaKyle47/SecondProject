@@ -534,7 +534,7 @@ plotCubicPatch3D = function(sampledTree, grid_size = 0.1, z_limit = c(-5,6)){
   border = sampledTree$border
 
   test_grid = expand.grid(seq(border[1],border[3], grid_size), seq(border[2],border[4],grid_size))
-  PatchValues = apply(test_grid, 1, FUN = evaluateSampledTreeValue, sampledTree = sampledTree)
+  PatchValues = apply(test_grid, 1, FUN = evaluateSampledTreeValue, tree = sampledTree, coefs = sampledTree$coefs)
 
   plottingGrid = data.frame(test_grid, PatchValues)
   names(plottingGrid) = c('X','Y','Value')
@@ -543,7 +543,7 @@ plotCubicPatch3D = function(sampledTree, grid_size = 0.1, z_limit = c(-5,6)){
   X <- as.numeric(rownames(Value))
   Y <- as.numeric(colnames(Value))
 
-  plot = plot_ly(x = ~X, y = ~Y, z = ~Value, type = "surface")
+  plot = plot_ly(x = X, y = Y, z = Value, type = "surface")
 
   plot %>% layout(
     title = "3D Surface with Z-Axis Limit",
