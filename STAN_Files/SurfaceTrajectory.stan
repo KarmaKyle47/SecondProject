@@ -31,11 +31,11 @@ functions {
     int N = rows(baseCompGridBoundaries);
     int final_rows = N * 9;
     matrix[final_rows, 5 + numModels] finalBoundaries;
-    
+
     int row_counter = 1;
     real x_grid_size = baseCompGridBoundaries[1, 3] - baseCompGridBoundaries[1, 1];
     real y_grid_size = baseCompGridBoundaries[1, 4] - baseCompGridBoundaries[1, 2];
-    real trans_length = (x_grid_size + y_grid_size - sqrt((x_grid_size + y_grid_size)^2 
+    real trans_length = (x_grid_size + y_grid_size - sqrt((x_grid_size + y_grid_size)^2
                           - 4 * trans_prop * x_grid_size * y_grid_size)) / 4;
 
     vector[numModels] transition_models = rep_vector(0.5, numModels);
@@ -121,7 +121,7 @@ functions {
           }
         }
       }
-      
+
       current_model_col = processed_model_col;
 
       // Pass 2: "T" -> "Off" (0.0)
@@ -147,7 +147,7 @@ functions {
           }
         }
       }
-      
+
       finalBoundaries[, 5 + m] = processed_model_col;
     }
 
@@ -239,16 +239,16 @@ functions {
   }
 
   real evaluateSampledSurfaceValue(matrix Boundaries, matrix coefs, vector[2] curPos) {
-  
+
     // Use 0 as a sentinel value (since Stan indices are 1-based)
-    int cur_index = 0; 
-  
+    int cur_index = 0;
+
     // --- 1. Find the correct patch index ---
     for (i in 1:rows(Boundaries)) {
       // Use logical AND '&&'
       if (curPos[1] >= Boundaries[i, 1] && curPos[1] <= Boundaries[i, 3] &&
           curPos[2] >= Boundaries[i, 2] && curPos[2] <= Boundaries[i, 4]) {
-      
+
         cur_index = i; // Set the index
         break;         // Exit the loop
       }
@@ -274,7 +274,7 @@ functions {
 
     real dx = border[3] - border[1];
     real dy = border[4] - border[2];
-  
+
     real dx2 = dx * dx;
     real dx3 = dx2 * dx;
     real dy2 = dy * dy;
@@ -312,7 +312,7 @@ functions {
 
     return known_coefs;
 
-  } 
+  }
 
 
   matrix calculateSurface_KnownCorners(matrix boundaries,
@@ -323,17 +323,17 @@ functions {
 
     // --- 1. Declarations ---
     int n_cells = rows(boundaries); // This is N * 9
-  
+
     // Calculate original grid dimensions
     int n_orig_cells = n_cells / 9; // Integer division
     int orig_grid_length = round(sqrt(n_orig_cells)); // N_orig_side
 
     // Calculate final (sub-divided) grid dimensions
     int grid_length = orig_grid_length * 3; // N_orig_side * 3
-  
+
     // This is the number of CORNERS per side for the final grid
     int x_grid_len = grid_length + 1;
-  
+
     // Pre-allocate the output matrix
     matrix[n_cells, 16] coefs;
 
@@ -350,15 +350,15 @@ functions {
 
       // --- B. NEW LOGIC: Decode 'i' to find its grid position ---
       // (All 1-based indices)
-    
+
       // 1. Find which original cell (1..N) and sub-cell (1..9) this is
       int n_orig_index = (i - 1) / 9 + 1;
       int sub_cell_index = (i - 1) % 9 + 1;
-  
+
       // 2. Find (row, col) of the ORIGINAL cell
       int orig_cell_row = (n_orig_index - 1) / orig_grid_length + 1;
       int orig_cell_col = (n_orig_index - 1) % orig_grid_length + 1;
- 
+
       // 3. Find (row, col) of the SUB-CELL (1..3)
       //    (Matches the 1-9 filling order: 1,2,3... 4,5,6... 7,8,9)
       int sub_cell_row = (sub_cell_index - 1) / 3 + 1;
@@ -367,7 +367,7 @@ functions {
       // 4. Calculate the FINAL (row, col) of this cell in the 3x3 grid
       int final_cell_row = (orig_cell_row - 1) * 3 + sub_cell_row;
       int final_cell_col = (orig_cell_col - 1) * 3 + sub_cell_col;
-    
+
       // 5. This (row, col) is the (y, x) index of the cell's
       //    bottom-left CORNER in the final (grid_length+1)x(grid_length+1) grid.
       int y_index = final_cell_row;
@@ -378,7 +378,7 @@ functions {
       cur_corner_indices[2] = cur_corner_indices[1] + 1;            // Bottom-Right (BR)
       cur_corner_indices[3] = y_index * x_grid_len + x_index;       // Top-Left (TL)
       cur_corner_indices[4] = cur_corner_indices[3] + 1;            // Top-Right (TR)
-    
+
       // --- C. Get data for this cell ---
       // Get the cell's 4 boundaries (L1, L2, U1, U2)
       cur_border = boundaries[i, 1:4]'; // transpose row_vector -> vector
@@ -402,6 +402,198 @@ functions {
     return coefs;
   }
 
+  matrix updateCornerQuantities(vector baseCornerValues,
+                                vector baseCornerParXs,
+                                vector baseCornerParYs,
+                                vector baseCornerParXYs,
+				                        matrix baseBoundaries,
+                                matrix updatedBoundaries,
+                                int model){
+
+       // --- 1. Declarations ---
+    int n_cells = rows(updatedBoundaries); // This is N * 9
+
+    // Calculate original grid dimensions
+    int n_orig_cells = n_cells / 9; // Integer division
+    int orig_grid_length = round(sqrt(n_orig_cells)); // N_orig_side
+    int orig_x_grid_len = orig_grid_length + 1;
+
+    // Calculate final (sub-divided) grid dimensions
+    int grid_length = orig_grid_length * 3; // N_orig_side * 3
+
+    // This is the number of CORNERS per side for the final grid
+    int x_grid_len = grid_length + 1;
+
+    vector[n_cells] RegionTypes = updatedBoundaries[,5+model];
+
+    int n_corners = (grid_length + 1) * (grid_length + 1);
+    matrix[n_corners, 4] updatedCornerQuantities = rep_matrix(0.0, n_corners, 4);
+
+    for(i in 1:n_cells){
+
+      if(RegionTypes[i] == 1.0){
+
+        // 1. Find which original cell (1..N) and sub-cell (1..9) this is
+        int n_orig_index = (i - 1) / 9 + 1;
+        int sub_cell_index = (i - 1) % 9 + 1;
+
+        // 2. Find (row, col) of the ORIGINAL cell
+        int orig_cell_row = (n_orig_index - 1) / orig_grid_length + 1;
+        int orig_cell_col = (n_orig_index - 1) % orig_grid_length + 1;
+
+	      int orig_corner_indices[4];
+
+        // 6. Calculate the 4 flat indices for the GridXXX vectors
+        orig_corner_indices[1] = (orig_cell_row - 1) * orig_x_grid_len + orig_cell_col; // Bottom-Left (BL)
+        orig_corner_indices[2] = orig_corner_indices[1] + 1;            // Bottom-Right (BR)
+        orig_corner_indices[3] = orig_cell_row * orig_x_grid_len + orig_cell_col;       // Top-Left (TL)
+        orig_corner_indices[4] = orig_corner_indices[3] + 1;            // Top-Right (TR)
+
+        // 3. Find (row, col) of the SUB-CELL (1..3)
+        //    (Matches the 1-9 filling order: 1,2,3... 4,5,6... 7,8,9)
+        int sub_cell_row = (sub_cell_index - 1) / 3 + 1;
+        int sub_cell_col = (sub_cell_index - 1) % 3 + 1;
+
+        // 4. Calculate the FINAL (row, col) of this cell in the 3x3 grid
+        int final_cell_row = (orig_cell_row - 1) * 3 + sub_cell_row;
+        int final_cell_col = (orig_cell_col - 1) * 3 + sub_cell_col;
+
+        // 5. This (row, col) is the (y, x) index of the cell's
+        //    bottom-left CORNER in the final (grid_length+1)x(grid_length+1) grid.
+        int y_index = final_cell_row;
+        int x_index = final_cell_col;
+
+	      int cur_corner_indices[4];
+
+        // 6. Calculate the 4 flat indices for the GridXXX vectors
+        cur_corner_indices[1] = (y_index - 1) * x_grid_len + x_index; // Bottom-Left (BL)
+        cur_corner_indices[2] = cur_corner_indices[1] + 1;            // Bottom-Right (BR)
+        cur_corner_indices[3] = y_index * x_grid_len + x_index;       // Top-Left (TL)
+        cur_corner_indices[4] = cur_corner_indices[3] + 1;            // Top-Right (TR)
+
+        vector[4] cur_updatedBorder = updatedBoundaries[i,1:4]';
+	      vector[4] cur_baseBorder = baseBoundaries[n_orig_index,1:4]';
+
+      	vector[2] cur_BL = [cur_updatedBorder[1],cur_updatedBorder[2]]';
+      	vector[2] cur_BR = [cur_updatedBorder[3],cur_updatedBorder[2]]';
+	      vector[2] cur_TL = [cur_updatedBorder[1],cur_updatedBorder[4]]';
+	      vector[2] cur_TR = [cur_updatedBorder[3],cur_updatedBorder[4]]';
+
+        vector[16] cur_OrigCoefs = calculatePatch_KnownDerivates(cur_baseBorder, baseCornerValues[orig_corner_indices], 													 baseCornerParXs[orig_corner_indices],
+										 baseCornerParYs[orig_corner_indices],
+										 baseCornerParXYs[orig_corner_indices]);
+        updatedCornerQuantities[cur_corner_indices[1],1:4] = [evaluateCubicPatchValue(cur_OrigCoefs, cur_baseBorder, cur_BL),
+							      evaluateCubicPatchParX(cur_OrigCoefs, cur_baseBorder, cur_BL),
+							      evaluateCubicPatchParY(cur_OrigCoefs, cur_baseBorder, cur_BL),
+							      evaluateCubicPatchParXY(cur_OrigCoefs, cur_baseBorder, cur_BL)];
+
+        updatedCornerQuantities[cur_corner_indices[2],1:4] = [evaluateCubicPatchValue(cur_OrigCoefs, cur_baseBorder, cur_BR),
+							      evaluateCubicPatchParX(cur_OrigCoefs, cur_baseBorder, cur_BR),
+							      evaluateCubicPatchParY(cur_OrigCoefs, cur_baseBorder, cur_BR),
+							      evaluateCubicPatchParXY(cur_OrigCoefs, cur_baseBorder, cur_BR)];
+
+        updatedCornerQuantities[cur_corner_indices[3],1:4] = [evaluateCubicPatchValue(cur_OrigCoefs, cur_baseBorder, cur_TL),
+							      evaluateCubicPatchParX(cur_OrigCoefs, cur_baseBorder, cur_TL),
+							      evaluateCubicPatchParY(cur_OrigCoefs, cur_baseBorder, cur_TL),
+							      evaluateCubicPatchParXY(cur_OrigCoefs, cur_baseBorder, cur_TL)];
+
+        updatedCornerQuantities[cur_corner_indices[4],1:4] = [evaluateCubicPatchValue(cur_OrigCoefs, cur_baseBorder, cur_TR),
+							      evaluateCubicPatchParX(cur_OrigCoefs, cur_baseBorder, cur_TR),
+							      evaluateCubicPatchParY(cur_OrigCoefs, cur_baseBorder, cur_TR),
+							      evaluateCubicPatchParXY(cur_OrigCoefs, cur_baseBorder, cur_TR)];
+
+      }
+
+
+    }
+
+    return updatedCornerQuantities;
+
+  }
+
+  vector[2] getCompSpacePos(matrix GMM_means, array[] cov_matrix[2,2] GMM_cov, simplex GMM_weights, vector[2] curPos_Phy){
+    int n_mixtures = rows(GMM_means);
+    real x_phy = curPos_Phy[1];
+    real y_phy = curPos_Phy[2];
+
+    real x_cdf = 0.0;
+    vector[n_mixtures] cond_log_weights_uw;
+
+    for(i in 1:n_mixtures){
+      x_cdf += normal_cdf(x_phy, GMM_means[i,1], sqrt(GMM_cov[i][1,1]))*GMM_weights[i];
+      cond_log_weights_uw[i] = normal_lpdf(x_phy | GMM_means[i,1], sqrt(GMM_cov[i][1,1])) + log(GMM_weights[i]);
+    }
+
+    vector[n_mixtures] cond_log_weights = cond_log_weights_uw - log_sum_exp(cond_log_weights_uw);
+    vector[n_mixtures] cond_weights = exp(cond_log_weights);
+
+    real y_given_x_cdf = 0.0;
+
+    for(i in 1:n_mixtures){
+      real cur_cond_mean = GMM_means[i,2] + GMM_cov[i][2,1]*(1/GMM_cov[i][1,1])*(x_phy - GMM_means[i,1]);
+      real cur_cond_sd = sqrt(GMM_cov[i][2,2] - GMM_cov[i][2,1]*(1/GMM_cov[i][1,1])*GMM_cov[i][1,2]);
+
+      y_given_x_cdf += normal_cdf(y_phy, cur_cond_mean, cur_cond_sd)*cond_weights[i];
+    }
+
+    return [x_cdf, y_given_x_cdf]';
+
+  }
+
+  real energySelf(vector[2] models){
+    real cell_energy = 0.0;
+    if(models[1] == models[2]){
+      cell_energy += 1000000;
+    }
+
+    return cell_energy;
+  }
+
+  real energyPairs(vector[2] models1, vector[2] models2){
+
+    real card_model1 = 2 - (models1[1] == models1[2]);
+    real card_model2 = 2 - (models2[1] == models2[2]);
+
+    real model_int = max(0.0, (models1[1] == models2[1] || models1[1] == models2[2]) +
+                              (models1[2] == models2[1] || models1[2] == models2[2]) -
+                              (models1[1] == models1[2]));
+
+    real model_union = card_model1 + card_model2 - model_int;
+
+    return 1 - (model_int)/(model_union);
+
+  }
+
+real calculateBaseGridEnergy(matrix baseCompGridBoundaries, matrix models) {
+
+  int n_cells = rows(baseCompGridBoundaries);
+  int n_grid_length = round(sqrt(n_cells));
+
+  real total_energy = 0.0;
+
+  // Single loop over all cells
+  for (i in 1:n_cells) {
+
+    // --- 1. Add Self Energy (same as before) ---
+    total_energy += energySelf(models[i, 1:2]');
+
+    // --- 2. Add "Right" Pair Energy ---
+    // Check if 'i' is NOT in the far-right column
+    // (The modulo operator % is 0 for the last cell in a row)
+    if (i % n_grid_length != 0) {
+      total_energy += energyPairs(models[i, 1:2]', models[i + 1, 1:2]');
+    }
+
+    // --- 3. Add "Up" Pair Energy ---
+    // Check if 'i' is NOT in the top row
+    if (i <= (n_cells - n_grid_length)) {
+      total_energy += energyPairs(models[i, 1:2]', models[i + n_grid_length, 1:2]');
+    }
+  }
+
+  return total_energy;
+}
+
 
 
 }
@@ -413,7 +605,7 @@ data {
   matrix[N,2] Data;         // Particle Positions
   int<lower=1> GMM_num; // Number of Gaussian Mixtures in the Transformation
   matrix[GMM_num,2] GMM_means; // Means of all Gaussian Mixtures;
-  array[GMM_num] cov_matrix[2] GMM_cov; // Covariance matrices of all Mixtures
+  array[GMM_num] cov_matrix[2,2] GMM_cov; // Covariance matrices of all Mixtures
   simplex[GMM_num] GMM_weights; // Weights for Mixtures
 }
 
