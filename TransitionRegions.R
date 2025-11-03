@@ -379,6 +379,7 @@ plotTransitionRegions = function(treeBoundaries,types, title = ""){
 
 }
 
+testPrior$TrajectorySurfaces
 
 
 tree = generate_grid_tree(0.1,c(0,0,1,1))

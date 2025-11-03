@@ -234,9 +234,19 @@ visualizeModelExistence = function(sampledTree, model){
       name = "Model Match", # Optional: adds a title to the legend
       values = c("TRUE" = "#2E7D32", "FALSE" = "#C62828")
     )  +
-    xlab("Longitude") + ylab("Latitude") + theme(legend.position = "none")
+    xlab("X") + ylab("Y") + theme(legend.position = "none")
 
 }
+
+test_models = sample_models_one_pass(tree, 3)
+
+model1 = visualizeModelExistence(test_models, 1) + ggtitle("Model 1") + theme(plot.title = element_text(hjust = 0.5))
+model2 = visualizeModelExistence(test_models, 2) + ggtitle("Model 2") + theme(plot.title = element_text(hjust = 0.5))
+model3 = visualizeModelExistence(test_models, 3) + ggtitle("Model 3") + theme(plot.title = element_text(hjust = 0.5))
+
+sampleTransitionSurface_ByGrid(tree, sampledModels = test_models[,c(6,7)], model = 1, trans_prop = 8/9, k = 0.1, prior_mean = 1)
+
+ggarrange(model1, model2, model3, nrow = 1)
 
 tree = generateTree(99, c(0,0,1,1))
 
@@ -273,3 +283,51 @@ hist(tree_sampled_gibbs[[2]][100:1000])
 
 length(tree_sampled_gibbs[[2]])
 
+kindaBoundardies$Model1 = "Off"
+kindaBoundardies$Model2 = "Off"
+kindaBoundardies$Model3 = "Off"
+
+for(i in 1:nrow(kindaBoundardies)){
+
+  cur_trueIndex = which(tree$boundaries$L1 == kindaBoundardies$L1[i] & tree$boundaries$L2 == kindaBoundardies$L2[i])
+
+  if(tree$models$Model1[cur_trueIndex] == "On"){
+    kindaBoundardies$Model1[i] = "On"
+  }
+  if(tree$models$Model2[cur_trueIndex] == "On"){
+    kindaBoundardies$Model2[i] = "On"
+  }
+  if(tree$models$Model3[cur_trueIndex] == "On"){
+    kindaBoundardies$Model3[i] = "On"
+  }
+
+
+}
+
+model1 = plotTransitionRegions(kindaBoundardies, types = kindaBoundardies$Model1, title = "Model 1") +     scale_fill_manual(
+  name = "Model Match", # Optional: adds a title to the legend
+  values = c("On" = "#2E7D32", "Off" = "#C62828")
+) + xlab("X") + ylab("Y")
+
+model2 = plotTransitionRegions(kindaBoundardies, types = kindaBoundardies$Model2, title = "Model 2") +     scale_fill_manual(
+  name = "Model Match", # Optional: adds a title to the legend
+  values = c("On" = "#2E7D32", "Off" = "#C62828")
+) + xlab("X") + ylab("Y")
+
+model3 = plotTransitionRegions(kindaBoundardies, types = kindaBoundardies$Model3, title = "Model 3") +     scale_fill_manual(
+  name = "Model Match", # Optional: adds a title to the legend
+  values = c("On" = "#2E7D32", "Off" = "#C62828")
+) + xlab("X") + ylab("Y")
+
+ggarrange(model1, model2, model3, nrow = 1)
+
+model1_Trans = plotTransitionRegions(tree$boundaries, types = tree$models$Model1, title = "Model 1")
+model2_Trans = plotTransitionRegions(tree$boundaries, types = tree$models$Model2, title = "Model 2")
+model3_Trans = plotTransitionRegions(tree$boundaries, types = tree$models$Model3, title = "Model 3")
+
+ggarrange(model1_Trans, model2_Trans, model3_Trans, nrow = 1)
+
+plotTree = plotFullTree(tree, 0.01)
+plotTree$ModelSurfaces[[2]]
+
+ggplot(testPrior$ObsData, aes(x = X1, y = X2, color = Particle)) + geom_point() +theme(legend.position = "none")

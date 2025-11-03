@@ -627,12 +627,6 @@ calculateSurface_KnownCorners = function(boundaries, GridValues, GridParXs, Grid
 
 }
 
-tree = baseTree
-sampledModels = base_models
-model = 2
-trans_prop
-
-
 sampleTransitionSurface_ByGrid = function(tree, sampledModels, model, trans_prop, k, prior_mean = 1){
 
   #Sampling coefficients by sampling values and partial derivatives at the grid intersections
@@ -1063,11 +1057,12 @@ sampleFromFullPrior = function(phySpaceBorder = c(-1,-1,1,1), baseVectorFields =
 
   f1 = c(curPos[2],-1*curPos[1])/sqrt(sum(c(curPos[1],curPos[2])^2))
   f2 = c(curPos[1],curPos[2])/sqrt(sum(c(curPos[1],curPos[2])^2))
-  matrix(c(f1,f2), nrow = 2, byrow = F)
+  f3 = c(1,1)
+  matrix(c(f1,f2,f3), nrow = 2, byrow = F)
 
 }, n_particles = 5, regions_per_dim_CompSpace = 10, traj_k_params = c(1,1),
                                base_weight_params = c(100,900), trans_proportion_params = c(80,10), traj_mean = 1,
-                               error_k_params = c(1,1), n_GMM_mixtures_param = 19, GMM_buffer_perc_params = c(10,40), GMM_cov_params = c(10,40), startTime = 0, endTime = 5,
+                               n_GMM_mixtures_param = 19, GMM_buffer_perc_params = c(10,40), GMM_cov_params = c(10,40), startTime = 0, endTime = 5,
                                particle_t_step = 0.01, pos_error_params = c(1,1), vel_error_params = c(1,1)){
 
   #Generate Computational Space Trajectories
@@ -1077,7 +1072,6 @@ sampleFromFullPrior = function(phySpaceBorder = c(-1,-1,1,1), baseVectorFields =
   #regions_per_dim_CompSpace -> maybe add extra hyperprior
 
   traj_k = sqrt(rinvgamma(traj_k_params[1], shape = traj_k_params[2])) #std on the value and first derivatives of the trajectory surfaces at the corners of the grid
-  error_k = sqrt(rinvgamma(error_k_params[1], shape = error_k_params[2])) #std on the value and first derivatives of the error surfaces at the corners of the grid (not sure about this one)
   base_weight_model_transition = rbeta(1, base_weight_params[1], base_weight_params[2]) #controls the stickiness of the models in the computational space
   trans_proportion = rbeta(1, trans_proportion_params[1], trans_proportion_params[2]) #the percent of each grid cell to be allocated to be a transition from On to Off
 
@@ -1124,5 +1118,11 @@ sampleFromFullPrior = function(phySpaceBorder = c(-1,-1,1,1), baseVectorFields =
 }
 
 
+testPrior = sampleFromFullPrior(phySpaceBorder = c(-5,-5,5,5), traj_k_params = c(1,50), n_particles = 10, pos_error_params = c(1,20), vel_error_params = c(1,100))
 
+Traj1 = testPrior$TrajectorySurfaces
+
+plotFullTree(testPrior$TrajectorySurfaces)
+
+visualizeSampledTransformation(testPrior$TrajectorySurfaces, phySpaceBorder = c(-5,-5,5,5), n_data_points = 1000, boundary_grid_size = 0.01)
 

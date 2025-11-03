@@ -140,6 +140,12 @@ phySpaceData = function(GMM, compSpace_Data, phySpaceBorder){
 
 }
 
+sampled_GMM = testGMM_Right
+tree = testPrior$TrajectorySurfaces
+phy_Data = testObsData
+comp_Data = testCompData
+phySpaceBorder = c(-5,-5,5,5)
+
 visualizeSampledTransformation = function(tree, phySpaceBorder, n_data_points = 10000, boundary_grid_size = 0.01){
 
   if(n_data_points == 0){
@@ -212,7 +218,7 @@ visualizeSampledTransformation = function(tree, phySpaceBorder, n_data_points = 
       geom_segment(aes(x = outerBorder[1], y = outerBorder[4], xend = outerBorder[3], yend = outerBorder[4]), color = 'black') +
       ggtitle("Physical Space") + theme(legend.position = "none", plot.title = element_text(hjust = 0.5))
 
-    compSpacePlot = ggplot() + geom_point(data = comp_Data, aes(x = X, y = Y, color = as.factor(Model))) +
+    compSpacePlot = ggplot() + geom_point(data = comp_Data, aes(x = X, y = Y, color = as.factor(Particle))) +
       geom_segment(data = tree$boundaries, aes(x = L1, y = L2, xend = L1, yend = U2), color = 'black') +
       geom_segment(data = tree$boundaries, aes(x = U1, y = L2, xend = U1, yend = U2), color = 'black') +
       geom_segment(data = tree$boundaries, aes(x = L1, y = L2, xend = U1, yend = L2), color = 'black') +
@@ -379,3 +385,6 @@ plotTransPatch$ModelRegions[[10]]
 
 
 plotTransformedRegions(GMM, treeBoundaries = fullTree$boundaries, types = fullTree$models[,2], phySpaceBorder, boundary_grid_size = 0.005)
+
+
+
