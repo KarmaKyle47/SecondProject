@@ -2,6 +2,40 @@
 
 functions {
 
+  matrix generate_grid_tree_boundaries(int comp_res){
+
+    int comp_res2 = comp_res*comp_res;
+
+    vector[comp_res+1] full_dim_boundaries = linspaced_vector(comp_res + 1, 0.0, 1.0);
+
+    vector[comp_res2] L1;
+    vector[comp_res2] L2;
+    vector[comp_res2] U1;
+    vector[comp_res2] U2;
+
+    for(i in 1:comp_res){
+
+      int start_i = (i-1)*comp_res + 1;
+      int end_i = (i)*comp_res;
+
+      L1[start_i:end_i] = full_dim_boundaries[1:comp_res];
+      L2[start_i:end_i] = rep_vector(full_dim_boundaries[i], comp_res);
+      U1[start_i:end_i] = full_dim_boundaries[2:(comp_res + 1)];
+      U2[start_i:end_i] = rep_vector(full_dim_boundaries[i+1], comp_res);
+
+    }
+
+    matrix[comp_res2, 4] Boundaries;
+
+    Boundaries[,1] = L1;
+    Boundaries[,2] = L2;
+    Boundaries[,3] = U1;
+    Boundaries[,4] = U2;
+
+    return Boundaries;
+
+  }
+
   int get_row_index(int i, int j, int comp_res) {
     int i_zero = i - 1;
     int j_zero = j - 1;
@@ -635,6 +669,7 @@ data {
   matrix[144,4] fullBoundaries_data;
   matrix[144,16] fullCoefs1;
   matrix[144,16] fullCoefs2;
+  int comp_res;
 
   // --- Dummy data to make the model block valid ---
   real y_dummy;
@@ -665,4 +700,7 @@ generated quantities {
   vector[2] test_trajWeighted;
   test_trajWeighted = TrajWeightedBaseVectorFields(t_data, curPos_Phy_data, GMM_means_data, GMM_cov_data, GMM_weights_data,
                                          fullBoundaries_data, fullCoefs1, fullCoefs2);
+
+  matrix[16,4] test_baseBoundaries;
+  test_baseBoundaries = generate_grid_tree_boundaries(comp_res);
 }
