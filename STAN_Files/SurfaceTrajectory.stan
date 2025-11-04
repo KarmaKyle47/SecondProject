@@ -7,10 +7,10 @@ functions {
     int j_zero = j - 1;
     int orig_row = i_zero / 3;
     int orig_col = j_zero / 3;
-    int sub_row = i_zero % 3;
-    int sub_col = j_zero % 3;
+    int subRow = i_zero % 3;
+    int subCol = j_zero % 3;
     int n_orig_index = orig_row * comp_res + orig_col + 1;
-    int sub_cell_index = sub_row * 3 + sub_col + 1;
+    int sub_cell_index = subRow * 3 + subCol + 1;
     return (n_orig_index - 1) * 9 + sub_cell_index;
   }
 
@@ -147,7 +147,7 @@ functions {
     return finalBoundaries;
   }
 
-  real evaluateCubicPatchValue(vector[16] coefs, vector[4] border, vector[2] curPos) {
+  real evaluateCubicPatchValue(vector coefs, vector border, vector curPos) {
     // --- 1. Calculate relative coordinates ---
     real xr = curPos[1] - border[1]; // x - x_0
     real yr = curPos[2] - border[2]; // y - y_0
@@ -163,13 +163,13 @@ functions {
     vector[16] polyTerms = [ 1.0, yr, xr, xr*yr,
                              xr2, xr2*yr, xr3, xr3*yr,
                              yr2, yr3, xr*yr2, xr*yr3,
-                             xr2*yr2, xr2*yr3, xr3*yr2, xr3*yr3 ];
+                             xr2*yr2, xr2*yr3, xr3*yr2, xr3*yr3 ]';
 
     // --- 4. Return the dot product ---
     return dot_product(coefs, polyTerms);
   }
 
-  real evaluateCubicPatchParX(vector[16] coefs, vector[4] border, vector[2] curPos) {
+  real evaluateCubicPatchParX(vector coefs, vector border, vector curPos) {
     // --- 1. Calculate relative coordinates ---
     real xr = curPos[1] - border[1]; // x - x_0
     real yr = curPos[2] - border[2]; // y - y_0
@@ -190,7 +190,7 @@ functions {
     return dot_product(coefs, polyTerms);
   }
 
-  real evaluateCubicPatchParY(vector[16] coefs, vector[4] border, vector[2] curPos) {
+  real evaluateCubicPatchParY(vector coefs, vector border, vector curPos) {
     // --- 1. Calculate relative coordinates ---
     real xr = curPos[1] - border[1]; // x - x_0
     real yr = curPos[2] - border[2]; // y - y_0
@@ -211,7 +211,7 @@ functions {
     return dot_product(coefs, polyTerms);
   }
 
-  real evaluateCubicPatchParXY(vector[16] coefs, vector[4] border, vector[2] curPos) {
+  real evaluateCubicPatchParXY(vector coefs, vector border, vector curPos) {
     // --- 1. Calculate relative coordinates ---
     real xr = curPos[1] - border[1]; // x - x_0
     real yr = curPos[2] - border[2]; // y - y_0
@@ -231,7 +231,7 @@ functions {
     return dot_product(coefs, polyTerms);
   }
 
-  real evaluateSampledSurfaceValue(matrix Boundaries, matrix coefs, vector[2] curPos) {
+  real evaluateSampledSurfaceValue(matrix Boundaries, matrix coefs, vector curPos) {
 
     // Use 0 as a sentinel value (since Stan indices are 1-based)
     int cur_index = 0;
@@ -263,7 +263,7 @@ functions {
     return evaluateCubicPatchValue(cur_coefs, cur_border, curPos);
   }
 
-  vector[16] calculatePatch_KnownDerivates(vector[4] border, vector[4] CornerValues, vector[4] CornerParXs, vector[4] CornerParYs, vector[4] CornerParXYs){
+  vector calculatePatch_KnownDerivates(vector border, vector CornerValues, vector CornerParXs, vector CornerParYs, vector CornerParXYs){
 
     real dx = border[3] - border[1];
     real dy = border[4] - border[2];
@@ -319,7 +319,7 @@ functions {
 
     // Calculate original grid dimensions
     int n_orig_cells = n_cells / 9; // Integer division
-    int orig_grid_length = round(sqrt(n_orig_cells)); // N_orig_side
+    int orig_grid_length = to_int(round(sqrt(n_orig_cells))); // N_orig_side
 
     // Calculate final (sub-divided) grid dimensions
     int grid_length = orig_grid_length * 3; // N_orig_side * 3
@@ -401,14 +401,14 @@ functions {
                                 vector baseCornerParXYs,
 				                        matrix baseBoundaries,
                                 matrix updatedBoundaries,
-                                int model){
+                                int model_num){
 
        // --- 1. Declarations ---
     int n_cells = rows(updatedBoundaries); // This is N * 9
 
     // Calculate original grid dimensions
     int n_orig_cells = n_cells / 9; // Integer division
-    int orig_grid_length = round(sqrt(n_orig_cells)); // N_orig_side
+    int orig_grid_length = to_int(round(sqrt(n_orig_cells))); // N_orig_side
     int orig_x_grid_len = orig_grid_length + 1;
 
     // Calculate final (sub-divided) grid dimensions
@@ -417,7 +417,7 @@ functions {
     // This is the number of CORNERS per side for the final grid
     int x_grid_len = grid_length + 1;
 
-    vector[n_cells] RegionTypes = updatedBoundaries[,5+model];
+    vector[n_cells] RegionTypes = updatedBoundaries[,5+model_num];
 
     int n_corners = (grid_length + 1) * (grid_length + 1);
     matrix[n_corners, 4] updatedCornerQuantities = rep_matrix(0.0, n_corners, 4);
@@ -504,7 +504,7 @@ functions {
 
   }
 
-  vector[2] getCompSpacePos(matrix GMM_means, array[] cov_matrix[2,2] GMM_cov, simplex GMM_weights, vector[2] curPos_Phy){
+  vector getCompSpacePos(matrix GMM_means, real[,,] GMM_cov, vector GMM_weights, vector curPos_Phy){
     int n_mixtures = rows(GMM_means);
     real x_phy = curPos_Phy[1];
     real y_phy = curPos_Phy[2];
@@ -513,8 +513,8 @@ functions {
     vector[n_mixtures] cond_log_weights_uw;
 
     for(i in 1:n_mixtures){
-      x_cdf += normal_cdf(x_phy, GMM_means[i,1], sqrt(GMM_cov[i][1,1]))*GMM_weights[i];
-      cond_log_weights_uw[i] = normal_lpdf(x_phy | GMM_means[i,1], sqrt(GMM_cov[i][1,1])) + log(GMM_weights[i]);
+      x_cdf += normal_cdf(x_phy, GMM_means[i,1], sqrt(GMM_cov[1,1,i]))*GMM_weights[i];
+      cond_log_weights_uw[i] = normal_lpdf(x_phy | GMM_means[i,1], sqrt(GMM_cov[1,1,i])) + log(GMM_weights[i]);
     }
 
     vector[n_mixtures] cond_log_weights = cond_log_weights_uw - log_sum_exp(cond_log_weights_uw);
@@ -523,8 +523,8 @@ functions {
     real y_given_x_cdf = 0.0;
 
     for(i in 1:n_mixtures){
-      real cur_cond_mean = GMM_means[i,2] + GMM_cov[i][2,1]*(1/GMM_cov[i][1,1])*(x_phy - GMM_means[i,1]);
-      real cur_cond_sd = sqrt(GMM_cov[i][2,2] - GMM_cov[i][2,1]*(1/GMM_cov[i][1,1])*GMM_cov[i][1,2]);
+      real cur_cond_mean = GMM_means[i,2] + GMM_cov[2,1,i]*(1/GMM_cov[1,1,i])*(x_phy - GMM_means[i,1]);
+      real cur_cond_sd = sqrt(GMM_cov[2,2,i] - GMM_cov[2,1,i]*(1/GMM_cov[1,1,i])*GMM_cov[1,2,i]);
 
       y_given_x_cdf += normal_cdf(y_phy, cur_cond_mean, cur_cond_sd)*cond_weights[i];
     }
@@ -533,7 +533,7 @@ functions {
 
   }
 
-  real energySelf(vector[2] models){
+  real energySelf(vector models){
     real cell_energy = 0.0;
     if(models[1] == models[2]){
       cell_energy += 1000000;
@@ -542,12 +542,12 @@ functions {
     return cell_energy;
   }
 
-  real energyPairs(vector[2] models1, vector[2] models2){
+  real energyPairs(vector models1, vector models2){
 
     real card_model1 = 2 - (models1[1] == models1[2]);
     real card_model2 = 2 - (models2[1] == models2[2]);
 
-    real model_int = max(0.0, (models1[1] == models2[1] || models1[1] == models2[2]) +
+    real model_int = max(0, (models1[1] == models2[1] || models1[1] == models2[2]) +
                               (models1[2] == models2[1] || models1[2] == models2[2]) -
                               (models1[1] == models1[2]));
 
@@ -560,7 +560,7 @@ functions {
   real calculateBaseGridEnergy(matrix baseCompGridBoundaries, matrix models) {
 
     int n_cells = rows(baseCompGridBoundaries);
-    int n_grid_length = round(sqrt(n_cells));
+    int n_grid_length = to_int(round(sqrt(n_cells)));
 
     real total_energy = 0.0;
 
@@ -587,7 +587,7 @@ functions {
     return total_energy;
   }
 
-  matrix[2,2] baseVectorFields(real t, vector[2] curPos){
+  matrix baseVectorFields(real t, vector curPos){
 
     matrix[2,2] VF;
 
@@ -599,11 +599,11 @@ functions {
     VF[1,2] = curPos[1]*inv_norm;
     VF[2,2] = curPos[2]*inv_norm;
 
-    return VF
+    return VF;
 
   }
 
-  vector[2] TrajWeightedBaseVectorFields(real t, vector[2] curPos, matrix GMM_means, array[] cov_matrix[2,2] GMM_cov, simplex GMM_weights,
+  vector TrajWeightedBaseVectorFields(real t, vector curPos, matrix GMM_means, real[,,] GMM_cov, vector GMM_weights,
                                          matrix Boundaries, matrix coefs1, matrix coefs2){
 
 
@@ -619,17 +619,16 @@ functions {
 
   }
 
-
 }
 
 data {
   int<lower=0> N_data;      // Number of observations
   int<lower=1> comp_res;      // Computational Grid Resolution
-  matrix[comp_res^2,4] baseCompGridBoundaries; //Base Computational Grid Boundaries
+  matrix[comp_res*comp_res,4] baseCompGridBoundaries; //Base Computational Grid Boundaries
   matrix[N,2] Data;         // Particle Positions
   int<lower=1> GMM_num; // Number of Gaussian Mixtures in the Transformation
   matrix[GMM_num,2] GMM_means; // Means of all Gaussian Mixtures;
-  array[GMM_num] cov_matrix[2,2] GMM_cov; // Covariance matrices of all Mixtures
+  array[GMM_num] cov_matrix[2] GMM_cov; // Covariance matrices of all Mixtures
   simplex[GMM_num] GMM_weights; // Weights for Mixtures
 }
 

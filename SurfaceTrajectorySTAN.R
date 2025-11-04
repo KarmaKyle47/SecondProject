@@ -32,15 +32,6 @@ library(rstan)
 # This compiles the functions and loads them into your R session
 expose_stan_functions("STAN_Files/SurfaceTrajectoryOnlyFunctions.stan")
 
-# Now you can call them just like R functions!
-result <- my_add_one(10)
-print(result)
-# [1] 11
-
-my_vec <- c(1, 2, 3)
-vec_result <- my_vector_func(my_vec)
-print(vec_result)
-
 evaluateCubicPatchParY(coef = tree$coefs[[1]][2,], border = c(0,0,1,1), curPos = c(0.5,0.4))
 evaluateCubicPatchParXY()
 
@@ -54,14 +45,22 @@ knownParX = rnorm(49, mean = 0, sd = 0.1)
 knownParY = rnorm(49, mean = 0, sd = 0.1)
 knownParXY = rnorm(49, mean = 0, sd = 0.1)
 
+t1 = Sys.time()
 baseTree = generate_grid_tree(0.5, c(0,0,1,1))
+t2 = Sys.time()
 baseModels = sample_models_one_pass(tree = baseTree, num_models = 4, baseWeight = 0.1)[,c(6,7)]
 
+t1 = Sys.time()
 stan_surface = calculateSurface_KnownCorners(updatedBoundaries[,1:4], knownCorners, knownParX, knownParY, knownParXY)
+t2 = Sys.time()
+t2-t1
 r_surface = calculateSurface_KnownCorners(data.frame(L1 = updatedBoundaries[,1],
                                                      L2 = updatedBoundaries[,2],
                                                      U1 = updatedBoundaries[,3],
                                                      U2 = updatedBoundaries[,4]), knownCorners, knownParX, knownParY, knownParXY)
+stan_updated_surface = updateCornerQuantities()
+
+t3 = Sys.time()
 
 stan_surface == r_surface
 updatedBoundaries = updateCompGridTransitions(8/9, baseCompGridBoundaries = as.matrix(baseTree$boundaries), comp_res = 2, models = as.matrix(baseModels), numModels = 4)
@@ -85,3 +84,93 @@ plot = ggplot() +
   xlab("Longitude") + ylab("Latitude")
 
 plot
+
+newTree = generate_grid_tree(0.25,c(0,0,1,1))
+
+sampleNewModels = sample_models_one_pass(newTree, num_models = 3, baseWeight = 0.1)[,c(6,7)]
+
+updatedNewBoundaries = updateCompGridTransitions(8/9, as.matrix(newTree$boundaries),4, as.matrix(sampleNewModels), 3)
+
+knownCornersBase = rnorm(25, mean = 1, sd = 0.1)
+knownParXBase = rnorm(25, mean = 0, sd = 0.1)
+knownParYBase = rnorm(25, mean = 0, sd = 0.1)
+knownParXYBase = rnorm(25, mean = 0, sd = 0.1)
+
+updateCornerQuantities(knownCornersBase, knownParXBase, knownParYBase, knownParXYBase, baseBoundaries = as.matrix(newTree$boundaries), updatedBoundaries = updatedNewBoundaries, model_num = 1)
+
+newTree$models = updatedNewBoundaries[,6:8]
+newTree$coefs = list(calculateSurface_KnownCorners(newTree$boundaries, knownCornersBase, knownParXBase, knownParYBase, knownParXYBase),
+                     calculateSurface_KnownCorners(newTree$boundaries, knownCornersBase, knownParXBase, knownParYBase, knownParXYBase),
+                     calculateSurface_KnownCorners(newTree$boundaries, knownCornersBase, knownParXBase, knownParYBase, knownParXYBase))
+
+updatedCornerQuantities1 = updateCornerQuantities(knownCornersBase, knownParXBase, knownParYBase, knownParXYBase, baseBoundaries = as.matrix(newTree$boundaries), updatedBoundaries = updatedNewBoundaries, model_num = 1)
+updatedCornerQuantities2 = updateCornerQuantities(knownCornersBase, knownParXBase, knownParYBase, knownParXYBase, baseBoundaries = as.matrix(newTree$boundaries), updatedBoundaries = updatedNewBoundaries, model_num = 2)
+updatedCornerQuantities3 = updateCornerQuantities(knownCornersBase, knownParXBase, knownParYBase, knownParXYBase, baseBoundaries = as.matrix(newTree$boundaries), updatedBoundaries = updatedNewBoundaries, model_num = 3)
+
+updatedCoefs1 = calculateSurface_KnownCorners(data.frame(L1 = updatedNewBoundaries[,1],
+                                                         L2 = updatedNewBoundaries[,2],
+                                                         U1 = updatedNewBoundaries[,3],
+                                                         U2 = updatedNewBoundaries[,4]), GridValues = updatedCornerQuantities1[,1], updatedCornerQuantities1[,2], updatedCornerQuantities1[,3], updatedCornerQuantities1[,4])
+
+updatedCoefs2 = calculateSurface_KnownCorners(data.frame(L1 = updatedNewBoundaries[,1],
+                                                         L2 = updatedNewBoundaries[,2],
+                                                         U1 = updatedNewBoundaries[,3],
+                                                         U2 = updatedNewBoundaries[,4]), GridValues = updatedCornerQuantities2[,1], updatedCornerQuantities2[,2], updatedCornerQuantities2[,3], updatedCornerQuantities2[,4])
+
+updatedCoefs3 = calculateSurface_KnownCorners(data.frame(L1 = updatedNewBoundaries[,1],
+                                                         L2 = updatedNewBoundaries[,2],
+                                                         U1 = updatedNewBoundaries[,3],
+                                                         U2 = updatedNewBoundaries[,4]), GridValues = updatedCornerQuantities3[,1], updatedCornerQuantities3[,2], updatedCornerQuantities3[,3], updatedCornerQuantities3[,4])
+
+updatedTree = list(boundaries = data.frame(L1 = updatedNewBoundaries[,1],
+                                           L2 = updatedNewBoundaries[,2],
+                                           U1 = updatedNewBoundaries[,3],
+                                           U2 = updatedNewBoundaries[,4]),
+                   coefs = list(updatedCoefs1, updatedCoefs2, updatedCoefs3),
+                   models = updatedNewBoundaries[,6:8], border = c(0,0,1,1))
+
+plotFullTree(newTree)
+plotUpdatedTree = plotFullTree(updatedTree)
+
+plotUpdatedTree$ModelSurfaces[[2]]
+
+
+
+sampledGMM = sampleGMM(c(-5,-5,5,5))
+
+# --- 2. Assemble the Stan Data List ---
+# Names must match the 'data' block in the .stan file
+stan_data <- list(
+  N_mixtures = length(sampledGMM$Cov),
+  GMM_means_data = sampledGMM$Mean,
+  GMM_cov_data = array(unlist(sampledGMM$Cov), dim = c(2, 2, length(sampledGMM$Cov))),
+  GMM_weights_data = sampledGMM$Weights,
+  curPos_Phy_data = c(-3.2,1.4),
+  y_dummy = 0.0 # Just a placeholder
+)
+
+# --- 3. Compile the Stan Model ---
+# This will take a minute, but it uses the REAL compiler
+mod <- rstan::stan_model("STAN_Files/SurfaceTrajectoryOnlyFunctions.stan")
+
+# --- 4. Run the Model to Test the Function ---
+# This part is very fast
+fit <- rstan::sampling(
+  object = mod,
+  data = stan_data,
+  algorithm = "Fixed_param",  # <-- The magic trick
+  iter = 1,                   # We only need one "draw"
+  warmup = 0,
+  chains = 1
+)
+
+# --- 5. Extract and Inspect the Result ---
+fit_extract <- rstan::extract(fit)
+
+# 'test_output' is what we named our variable in 'generated quantities'
+final_result <- fit_extract$test_output[1, ] # Get the first (and only) row
+
+print("Function test output:")
+print(final_result)
+
+
