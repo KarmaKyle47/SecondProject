@@ -534,6 +534,8 @@ updateTransitionsNewModel = function(baseBoundaries, baseGridCornerQuantities, t
 
   TransitionGridQuanities = matrix(ncol = 4, nrow = nrow(transition_grid))
 
+  ## Finish this
+
 }
 
 Borders = newBoundaries
