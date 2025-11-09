@@ -409,6 +409,19 @@ generate_grid_tree <- function(grid_size, border) {
   return(final_tree)
 }
 
+generate_grid_tree_boundaries = function(grid_res){
+
+  full_dim_boundaries = 0:grid_res / grid_res
+
+  L1 = rep(full_dim_boundaries[1:4],4)
+  L2 = rep(full_dim_boundaries[1:4],each = 4)
+  U1 = rep(full_dim_boundaries[2:5],4)
+  U2 = rep(full_dim_boundaries[2:5],each = 4)
+
+  matrix(c(L1, L2, U1, U2), ncol = 4, byrow = F)
+
+}
+
 grid_tree = generate_grid_tree(0.01, c(0,0,1,1))
 
 orderBoundaries(tree)[[2]]

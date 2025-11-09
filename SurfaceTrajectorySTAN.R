@@ -86,7 +86,7 @@ plot = ggplot() +
 plot
 
 newTree = generate_grid_tree(0.25,c(0,0,1,1))
-
+baseTree = generate_grid_tree(0.25,c(0,0,1,1))
 sampleNewModels = sample_models_one_pass(newTree, num_models = 3, baseWeight = 0.1)[,c(6,7)]
 
 updatedNewBoundaries = updateCompGridTransitions(8/9, as.matrix(newTree$boundaries),4, as.matrix(sampleNewModels), 3)
@@ -146,6 +146,14 @@ stan_data <- list(
   GMM_cov_data = array(unlist(sampledGMM$Cov), dim = c(2, 2, length(sampledGMM$Cov))),
   GMM_weights_data = sampledGMM$Weights,
   curPos_Phy_data = c(-3.2,1.4),
+  baseBoundaries_Data = as.matrix(baseTree$boundaries),
+  baseModels_Data = as.matrix(sampleNewModels),
+  t_data = 0,
+  fullBoundaries_data = as.matrix(updatedTree$boundaries),
+  fullCoefs1 = updatedTree$coefs[[2]],
+  fullCoefs2 = updatedTree$coefs[[3]],
+  comp_res = 4,
+
   y_dummy = 0.0 # Just a placeholder
 )
 
@@ -168,9 +176,21 @@ fit <- rstan::sampling(
 fit_extract <- rstan::extract(fit)
 
 # 'test_output' is what we named our variable in 'generated quantities'
-final_result <- fit_extract$test_output[1, ] # Get the first (and only) row
+fit_extract$test_baseBoundaries[1,,] == baseTreeSampled[,1:4]# Get the first (and only) row
 
 print("Function test output:")
 print(final_result)
 
+get_compSpace_pos(GMM = sampledGMM, curPos_phy = c(-3.2,1.4))
+baseTree$models = sampleNewModels
+baseTreeSampled = baseTree$boundaries
+baseTreeSampled$model1 = sampleNewModels[,1]
+baseTreeSampled$model2 = sampleNewModels[,2]
+calculate_tree_energy(baseTreeSampled, self_penalty = 100000, temperature = 1)
 
+updatedTree_V2 = updatedTree
+updatedTree_V2$coefs = list(updatedTree$coefs[[2]], updatedTree$coefs[[3]])
+
+TrajWeightedBaseVectorFields(0, c(-3.2,1.4), baseVectorFields, compPatchTree = updatedTree_V2, GMM = sampledGMM)
+
+plotTransitionRegions(baseTreeSampled)

@@ -184,6 +184,7 @@ sample_models_gibbs = function(tree, num_models, num_passes, self_penalty = 1000
   list(treeBoundaries, tree_energy)
 
 }
+sampledTree = baseTreeSampled
 
 calculate_tree_energy = function(sampledTree, self_penalty = 10000, temperature = 1){
 
@@ -202,7 +203,7 @@ calculate_tree_energy = function(sampledTree, self_penalty = 10000, temperature 
       cur_neighbor_models = c(sampledTree$model1[neighbors[j,1]], sampledTree$model2[neighbors[j,1]])
       cur_edge_length = neighbors[j,2]
 
-      pair_energy = pair_energy + Energy_Pair(cur_models, cur_neighbor_models)*cur_edge_length
+      pair_energy = pair_energy + Energy_Pair(cur_models, cur_neighbor_models)
 
     }
 
@@ -331,3 +332,142 @@ plotTree = plotFullTree(tree, 0.01)
 plotTree$ModelSurfaces[[2]]
 
 ggplot(testPrior$ObsData, aes(x = X1, y = X2, color = Particle)) + geom_point() +theme(legend.position = "none")
+
+
+
+## New sample models
+# Instead of sampling which 2 models are on (discrete) each model gets a probability of being on (encoded with a logit)
+# Still using the boltzmann-type distribution
+#Self energy is the L2 norm of the sum of the probabilities and 2 (encourage 2 models to be "on" in expectation)
+#Pairwise energy is the L2 norms of the logits
+
+library(MASS)
+num_models = 5
+sample_new_models_one_pass = function(tree, num_models, logit_sd = 0.1){
+
+  treeBoundaries = data.frame(orderBoundaries_GeminiCleaned(tree)[[1]])
+
+  RegionLogits = matrix(nrow = nrow(treeBoundaries), ncol = num_models)
+
+  if(num_models == 2){
+    baseLogits = c(1000, 1000)
+  } else{
+    baseLogits = c(log(9),log(9), rep(log((0.2/(num_models - 2))/(1-0.2/(num_models - 2))), num_models - 2))
+  }
+
+
+  for(i in 1:nrow(treeBoundaries)){
+
+    curIndex = which(treeBoundaries$order == i)
+    neighbors_index_edge = find_neighbors(treeBoundaries, curIndex)
+
+    definedNeighbors = neighbors_index_edge[which(treeBoundaries$order[neighbors_index_edge[,1]] < i),1]
+
+    if(length(definedNeighbors) > 0){
+
+      defined_logits = matrix(RegionLogits[definedNeighbors,], ncol = num_models)
+      avg_neighbor_logits = colMeans(defined_logits)
+
+
+      RegionLogits[curIndex,] = mvrnorm(1, mu = avg_neighbor_logits, Sigma = logit_sd^2*diag(num_models))
+
+    } else{
+
+      RegionLogits[curIndex,] = mvrnorm(1, mu = sample(baseLogits), Sigma = logit_sd^2*diag(num_models))
+
+    }
+
+
+  }
+
+  RegionLogits
+
+}
+
+visualizeNewModelExistence = function(Boundaries, ModelLogits, model){
+
+  ShadeData = data.frame(xmin = Boundaries$L1,
+                         xmax = Boundaries$U1,
+                         ymin = Boundaries$L2,
+                         ymax = Boundaries$U2,
+                         Region = str_c("Region", 1:nrow(Boundaries)),
+                         Prob = 1/(1 + exp(-1*ModelLogits[,model])))
+
+  ggplot() +
+    geom_segment(data = Boundaries, aes(x = L1, y = L2, xend = L1, yend = U2), color = 'black') +
+    geom_segment(data = Boundaries, aes(x = U1, y = L2, xend = U1, yend = U2), color = 'black') +
+    geom_segment(data = Boundaries, aes(x = L1, y = L2, xend = U1, yend = L2), color = 'black') +
+    geom_segment(data = Boundaries, aes(x = L1, y = U2, xend = U1, yend = U2), color = 'black') +
+    geom_rect(data = ShadeData,
+              aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax, fill = Prob),
+              inherit.aes = FALSE,
+              alpha = 0.4) +
+    scale_fill_gradient(
+      low = "#C62828", high = "#2E7D32", limits = c(0,1),
+      name = str_c("Probability of Model", model)
+    )  +
+    xlab("X") + ylab("Y")# + theme(legend.position = "none")
+
+}
+
+
+
+tree = generate_grid_tree(0.1, c(0,0,1,1))
+
+sample_new_models_one_pass(tree, 5, 1)
+
+visualizeNewModelExistence(Boundaries = tree$boundaries, ModelLogits = sample_new_models_one_pass(tree, 5, 5), model = 1)
+
+Energy_Pair_New = function(cell1_logits, cell2_logits){
+
+  mean((cell1_logits - cell2_logits)^2)
+
+}
+
+Energy_Self_New = function(cell_logits, penatly){
+
+  cell_probs = 1/(1+exp(-1*cell_logits))
+
+  penatly*mean((sum(cell_probs) - 2)^2)
+
+}
+
+calculate_tree_energy_new = function(treeBoundaries, cellLogits, self_penalty = 10, temperature = 1){
+
+  self_energy = 0
+  pair_energy = 0
+
+  for(i in 1:nrow(treeBoundaries)){
+
+    neighbors = find_neighbors(treeBoundaries, i)
+
+    self_energy = self_energy + Energy_Self_New(cellLogits[i,], penatly = self_penalty)
+
+    for(j in 1:nrow(neighbors)){
+
+      pair_energy = pair_energy + Energy_Pair_New(cellLogits[i,], cellLogits[j,])
+
+    }
+
+  }
+
+  unname((self_energy + pair_energy/2)/temperature)
+
+}
+
+
+
+test_energy = c()
+
+for(i in 1:1000){
+
+  test_energy = c(test_energy, calculate_tree_energy_new(treeBoundaries = tree$boundaries,
+                                                         cellLogits = sample_new_models_one_pass(tree, 5, 5), self_penalty = 10, temperature = 1))
+
+  svMisc::progress(i, 1000)
+}
+
+plot(test_energy, type = 'l')
+
+
+

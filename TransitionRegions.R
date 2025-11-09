@@ -470,3 +470,96 @@ plot %>% layout(
   )
 )
 
+
+#New transition region definition
+#Same grid structure, but for each corner we find the base grid cell it's in
+#If the corner is within 1 cell, then we can find the base coefficients and find the new values
+#If the corner is on the boundary of 2 or 4 cells then find the quantities of the base patches and average
+
+baseBoundaries = tree$boundaries
+baseGridCornerQuantities = basePatches
+trans_prop = 1/9
+
+updateTransitionsNewModel = function(baseBoundaries, baseGridCornerQuantities, trans_prop){
+
+  x_grid_size = baseBoundaries[1,"U1"] - baseBoundaries[1,"L1"]
+  y_grid_size = baseBoundaries[1,"U2"] - baseBoundaries[1,"L2"]
+
+  trans_length = (x_grid_size + y_grid_size - sqrt((x_grid_size + y_grid_size)^2 - 4*trans_prop*x_grid_size*y_grid_size))/4
+
+  newBoundaries = baseBoundaries
+  newBoundaries$OGIndex = 1:nrow(newBoundaries)
+
+  x_cells_num = (max(baseBoundaries[,"U1"]) - min(baseBoundaries[,"L1"]))/x_grid_size
+  y_cells_num = (max(baseBoundaries[,"U2"]) - min(baseBoundaries[,"L2"]))/x_grid_size
+
+  for(i in 1:x_cells_num){
+
+    curSplitLocLow = (i-1)*x_grid_size + trans_length
+    curSplitLocHigh = i*x_grid_size - trans_length
+    cellsToSplit = which(newBoundaries$L1 < curSplitLocLow & newBoundaries$U1 > curSplitLocHigh)
+    cellOGIndex = newBoundaries[cellsToSplit,]$OGIndex
+    n_cells = length(cellsToSplit)
+
+    newBoundaries[cellsToSplit,]$U1 = curSplitLocLow
+
+    curBoundaries = data.frame(L1 = c(rep(curSplitLocLow, n_cells), rep(curSplitLocHigh, n_cells)), L2 = rep(newBoundaries[cellsToSplit,]$L2,2), U1 = c(rep(curSplitLocHigh, n_cells), rep(curSplitLocHigh + trans_length, n_cells)), U2 = rep(newBoundaries[cellsToSplit,]$U2,2), OGIndex = rep(cellOGIndex, 2))
+
+    newBoundaries = rbind(newBoundaries, curBoundaries)
+
+  }
+
+
+  for(i in 1:y_cells_num){
+
+    curSplitLocLow = (i-1)*y_grid_size + trans_length
+    curSplitLocHigh = i*y_grid_size - trans_length
+    cellsToSplit = which(newBoundaries$L2 < curSplitLocLow & newBoundaries$U2 > curSplitLocHigh)
+    cellOGIndex = newBoundaries[cellsToSplit,]$OGIndex
+    n_cells = length(cellsToSplit)
+
+    newBoundaries[cellsToSplit,]$U2 = curSplitLocLow
+
+    curBoundaries = data.frame(L1 = rep(newBoundaries[cellsToSplit,]$L1,2), L2 = c(rep(curSplitLocLow, n_cells), rep(curSplitLocHigh, n_cells)), U1 = rep(newBoundaries[cellsToSplit,]$U1,2), U2 = c(rep(curSplitLocHigh, n_cells), rep(curSplitLocHigh + trans_length, n_cells)), OGIndex = rep(cellOGIndex, 2))
+
+    newBoundaries = rbind(newBoundaries, curBoundaries)
+
+  }
+
+
+  transition_grid_x = sort(unique(c(newBoundaries$L1, newBoundaries$U1)))
+  transition_grid_y = sort(unique(c(newBoundaries$L2, newBoundaries$U2)))
+
+  transition_grid = expand.grid(transition_grid_x, transition_grid_y)
+
+  TransitionGridQuanities = matrix(ncol = 4, nrow = nrow(transition_grid))
+
+}
+
+Borders = newBoundaries
+
+ShadeData = data.frame(xmin = Borders$L1,
+                       xmax = Borders$U1,
+                       ymin = Borders$L2,
+                       ymax = Borders$U2)
+
+plot = ggplot() +
+  geom_segment(data = Borders, aes(x = L1, y = L2, xend = L1, yend = U2), color = 'black') +
+  geom_segment(data = Borders, aes(x = U1, y = L2, xend = U1, yend = U2), color = 'black') +
+  geom_segment(data = Borders, aes(x = L1, y = L2, xend = U1, yend = L2), color = 'black') +
+  geom_segment(data = Borders, aes(x = L1, y = U2, xend = U1, yend = U2), color = 'black') +
+  geom_rect(data = ShadeData,
+            aes(xmin = xmin, xmax = xmax, ymin = ymin, ymax = ymax),
+            inherit.aes = FALSE,
+            alpha = 0.4) + geom_text(
+              data = Borders,
+              aes(
+                x = (L1 + U1) / 2,
+                y = (L2 + U2) / 2,
+                label = 1:nrow(Borders)
+              ),
+              color = "black",
+              size = 2
+            ) +
+  xlab("Longitude") + ylab("Latitude") + theme(legend.position = "none")
+

@@ -712,4 +712,45 @@ plot_ly(x = ~X2, y = ~Y2, z = ~Value2, type = "surface")
 
 mean(plottingGrid == plottingGrid_2)
 
+### Sampling trajectories with the new approach
+# In Every region in the base grid, each model has a probability of being "on"
+# This corresponds to a mixture model where with the given probability the corner quantities are drawn from on "on" distribution and the other an "off" distribution
+
+#The 3rd dimension corresponds to a cell, in the grid.
+#The first dimension corresponds to a corner in the cell. (BL, BR, TL, TR)
+#The second dimension corresponds to a quantity. (Value, ParX, ParY, ParXY)
+sample_NewPatches = function(ModelLogits, k = 0.1){
+
+  num_models = ncol(ModelLogits)
+  num_cells = nrow(ModelLogits)
+
+  basePatches = list()
+
+  for(m in 1:num_models){
+
+    cur_modelPatches = array(dim = c(4,4,num_cells))
+
+    for(c in 1:num_cells){
+
+      cur_prob = 1/(1 + exp(-1*ModelLogits[c,m]))
+      is_on = sample(c(T,F), 1, prob = c(cur_prob, 1 - cur_prob))
+
+      if(is_on){
+        cur_modelPatches[,,c] = mvrnorm(4, mu = c(1,0,0,0), Sigma = k^2*diag(4))
+      } else{
+        cur_modelPatches[,,c] = mvrnorm(4, mu = c(0,0,0,0), Sigma = (0.01)^2*diag(4))
+      }
+
+
+    }
+
+    basePatches[[m]] = cur_modelPatches
+
+
+  }
+
+  basePatches
+
+
+}
 
