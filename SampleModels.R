@@ -420,16 +420,14 @@ visualizeNewModelExistence(Boundaries = tree$boundaries, ModelLogits = ModelLogi
 
 Energy_Pair_New = function(cell1_logits, cell2_logits){
 
-  mean((cell1_logits - cell2_logits)^2)
-
+ mean((cell1_logits - cell2_logits)^2)
 }
 
-Energy_Self_New = function(cell_logits, penatly){
+Energy_Self_New = function(cell_logits, penalty){
 
   cell_probs = 1/(1+exp(-1*cell_logits))
 
-  penatly*mean((sum(cell_probs) - 2)^2)
-
+  penalty*(sum(cell_probs) - 2)^2
 }
 
 calculate_tree_energy_new = function(treeBoundaries, cellLogits, self_penalty = 10, temperature = 1){
@@ -441,9 +439,9 @@ calculate_tree_energy_new = function(treeBoundaries, cellLogits, self_penalty = 
 
     neighbors = find_neighbors(treeBoundaries, i)
 
-    self_energy = self_energy + Energy_Self_New(cellLogits[i,], penatly = self_penalty)
+    self_energy = self_energy + Energy_Self_New(cellLogits[i,], penalty = self_penalty)
 
-    for(j in 1:nrow(neighbors)){
+    for(j in neighbors[,1]){
 
       pair_energy = pair_energy + Energy_Pair_New(cellLogits[i,], cellLogits[j,])
 
@@ -455,8 +453,13 @@ calculate_tree_energy_new = function(treeBoundaries, cellLogits, self_penalty = 
 
 }
 
+tree$boundaries == baseGridBoundaries
 
-
+calculate_tree_energy_new(treeBoundaries = data.frame(L1 = baseGridBoundaries[,1],
+                                                      L2 = baseGridBoundaries[,2],
+                                                      U1 = baseGridBoundaries[,3],
+                                                      U2 = baseGridBoundaries[,4]), cellLogits = ModelLogits, self_penalty = 10, temperature = 1)
+fit_extract$test_BaseEnergy[1]
 test_energy = c()
 
 for(i in 1:1000){

@@ -157,6 +157,8 @@ stan_data <- list(
   baseGridCornerQuantities = baseGridCornerQuantities_Array,
   baseGridBoundaries = baseGridBoundaries,
   model_num = 4,
+  selfPenalty = 10,
+  ModelLogits = ModelLogits,
 
   y_dummy = 0.0 # Just a placeholder
 )
@@ -185,6 +187,7 @@ fit_extract$test_baseBoundaries[1,,] == baseTreeSampled[,1:4]# Get the first (an
 fit_extract$test_transBoundaries[1,,] == baseTreeSampled[,1:4]# Get the first (and only) row
 fit_extract$test_updatedQuantities[1,,]
 fit_extract$test_updatedCoefs[1,,]
+fit_extract$test_BaseEnergy
 print("Function test output:")
 print(final_result)
 

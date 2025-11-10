@@ -509,34 +509,27 @@ functions {
 
   }
 
-  real energySelf(vector models){
-    real cell_energy = 0.0;
-    if(models[1] == models[2]){
-      cell_energy += 1000000;
-    }
+  real energySelf(vector cell_logits, real penalty){
+    int n_models = num_elements(cell_logits);
 
-    return cell_energy;
+    vector[n_models] cell_probs;
+    cell_probs = inv_logit(cell_logits);
+
+    real cell_energy = penalty*(sum(cell_probs) - 2)^2;
+    //return cell_energy;
+    return 0.0;
   }
 
-  real energyPairs(vector models1, vector models2){
+  real energyPairs(vector cell_logits1, vector cell_logits2){
 
-    real card_model1 = 2 - (models1[1] == models1[2]);
-    real card_model2 = 2 - (models2[1] == models2[2]);
-
-    real model_int = max(0, (models1[1] == models2[1] || models1[1] == models2[2]) +
-                              (models1[2] == models2[1] || models1[2] == models2[2]) -
-                              (models1[1] == models1[2]));
-
-    real model_union = card_model1 + card_model2 - model_int;
-
-    return 1 - (model_int)/(model_union);
-
+    return mean(square(cell_logits1 - cell_logits2));
   }
 
-  real calculateBaseGridEnergy(matrix baseCompGridBoundaries, matrix models) {
+  real calculateBaseGridEnergy(matrix baseCompGridBoundaries, matrix ModelLogits, real selfPenalty) {
 
     int n_cells = rows(baseCompGridBoundaries);
     int n_grid_length = to_int(round(sqrt(n_cells)));
+    int n_models = cols(ModelLogits);
 
     real total_energy = 0.0;
 
@@ -544,19 +537,19 @@ functions {
     for (i in 1:n_cells) {
 
       // --- 1. Add Self Energy (same as before) ---
-      total_energy += energySelf(models[i, 1:2]');
+      total_energy += energySelf(ModelLogits[i, 1:n_models]', selfPenalty);
 
       // --- 2. Add "Right" Pair Energy ---
       // Check if 'i' is NOT in the far-right column
       // (The modulo operator % is 0 for the last cell in a row)
       if (i % n_grid_length != 0) {
-        total_energy += energyPairs(models[i, 1:2]', models[i + 1, 1:2]');
+        total_energy += energyPairs(ModelLogits[i, 1:n_models]', ModelLogits[i + 1, 1:n_models]');
       }
 
       // --- 3. Add "Up" Pair Energy ---
       // Check if 'i' is NOT in the top row
       if (i <= (n_cells - n_grid_length)) {
-        total_energy += energyPairs(models[i, 1:2]', models[i + n_grid_length, 1:2]');
+        total_energy += energyPairs(ModelLogits[i, 1:n_models]', ModelLogits[i + n_grid_length, 1:n_models]');
       }
     }
 
@@ -616,6 +609,8 @@ data {
   real baseGridCornerQuantities[4,4,100,5];
   matrix[100,4] baseGridBoundaries;
   int model_num;
+  real selfPenalty;
+  matrix[100,5] ModelLogits;
 
   // --- Dummy data to make the model block valid ---
   real y_dummy;
@@ -658,5 +653,8 @@ generated quantities {
 
   matrix[900,16] test_updatedCoefs;
   test_updatedCoefs = calculateSurface_KnownCorners(test_transBoundaries, test_updatedQuantities[,1], test_updatedQuantities[,2], test_updatedQuantities[,3], test_updatedQuantities[,4]);
+
+  real test_BaseEnergy;
+  test_BaseEnergy = calculateBaseGridEnergy(baseGridBoundaries, ModelLogits, selfPenalty);
 
 }
