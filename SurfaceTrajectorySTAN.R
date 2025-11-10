@@ -141,18 +141,22 @@ sampledGMM = sampleGMM(c(-5,-5,5,5))
 # --- 2. Assemble the Stan Data List ---
 # Names must match the 'data' block in the .stan file
 stan_data <- list(
-  N_mixtures = length(sampledGMM$Cov),
-  GMM_means_data = sampledGMM$Mean,
-  GMM_cov_data = array(unlist(sampledGMM$Cov), dim = c(2, 2, length(sampledGMM$Cov))),
-  GMM_weights_data = sampledGMM$Weights,
-  curPos_Phy_data = c(-3.2,1.4),
-  baseBoundaries_Data = as.matrix(baseTree$boundaries),
-  baseModels_Data = as.matrix(sampleNewModels),
-  t_data = 0,
-  fullBoundaries_data = as.matrix(updatedTree$boundaries),
-  fullCoefs1 = updatedTree$coefs[[2]],
-  fullCoefs2 = updatedTree$coefs[[3]],
-  comp_res = 4,
+  # N_mixtures = length(sampledGMM$Cov),
+  # GMM_means_data = sampledGMM$Mean,
+  # GMM_cov_data = array(unlist(sampledGMM$Cov), dim = c(2, 2, length(sampledGMM$Cov))),
+  # GMM_weights_data = sampledGMM$Weights,
+  # curPos_Phy_data = c(-3.2,1.4),
+  # baseBoundaries_Data = as.matrix(baseTree$boundaries),
+  # baseModels_Data = as.matrix(sampleNewModels),
+  # t_data = 0,
+  # fullBoundaries_data = as.matrix(updatedTree$boundaries),
+  # fullCoefs1 = updatedTree$coefs[[2]],
+  # fullCoefs2 = updatedTree$coefs[[3]],
+  comp_res = 10,
+  trans_prop = 8/9,
+  baseGridCornerQuantities = baseGridCornerQuantities_Array,
+  baseGridBoundaries = baseGridBoundaries,
+  model_num = 4,
 
   y_dummy = 0.0 # Just a placeholder
 )
@@ -160,6 +164,7 @@ stan_data <- list(
 # --- 3. Compile the Stan Model ---
 # This will take a minute, but it uses the REAL compiler
 mod <- rstan::stan_model("STAN_Files/SurfaceTrajectoryOnlyFunctions.stan")
+mod <- rstan::stan_model("STAN_Files/test_functions.stan")
 
 # --- 4. Run the Model to Test the Function ---
 # This part is very fast
@@ -177,7 +182,9 @@ fit_extract <- rstan::extract(fit)
 
 # 'test_output' is what we named our variable in 'generated quantities'
 fit_extract$test_baseBoundaries[1,,] == baseTreeSampled[,1:4]# Get the first (and only) row
-
+fit_extract$test_transBoundaries[1,,] == baseTreeSampled[,1:4]# Get the first (and only) row
+fit_extract$test_updatedQuantities[1,,]
+fit_extract$test_updatedCoefs[1,,]
 print("Function test output:")
 print(final_result)
 
@@ -194,3 +201,4 @@ updatedTree_V2$coefs = list(updatedTree$coefs[[2]], updatedTree$coefs[[3]])
 TrajWeightedBaseVectorFields(0, c(-3.2,1.4), baseVectorFields, compPatchTree = updatedTree_V2, GMM = sampledGMM)
 
 plotTransitionRegions(baseTreeSampled)
+newBoundaries

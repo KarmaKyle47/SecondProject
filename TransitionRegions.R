@@ -476,67 +476,165 @@ plot %>% layout(
 #If the corner is within 1 cell, then we can find the base coefficients and find the new values
 #If the corner is on the boundary of 2 or 4 cells then find the quantities of the base patches and average
 
-baseBoundaries = tree$boundaries
+tree = generate_grid_tree_boundaries(10)
+baseGridBoundaries = generate_grid_tree_boundaries(10)
 baseGridCornerQuantities = basePatches
-trans_prop = 1/9
 
-updateTransitionsNewModel = function(baseBoundaries, baseGridCornerQuantities, trans_prop){
+library(abind)
 
-  x_grid_size = baseBoundaries[1,"U1"] - baseBoundaries[1,"L1"]
-  y_grid_size = baseBoundaries[1,"U2"] - baseBoundaries[1,"L2"]
+baseGridCornerQuantities_Array = do.call(abind, c(baseGridCornerQuantities, along = 4))
 
-  trans_length = (x_grid_size + y_grid_size - sqrt((x_grid_size + y_grid_size)^2 - 4*trans_prop*x_grid_size*y_grid_size))/4
+baseGrid_res = 10
+trans_prop = 8/9
+m=1
+updateTransitionsNewModel = function(baseGrid_res, trans_prop, baseGridCornerQuantities, baseGridBoundaries){
 
-  newBoundaries = baseBoundaries
-  newBoundaries$OGIndex = 1:nrow(newBoundaries)
+  newBoundaries = generate_trans_tree_boundaries(baseGrid_res, trans_prop)
+  allModelsTransitionCornerQuantities = list()
 
-  x_cells_num = (max(baseBoundaries[,"U1"]) - min(baseBoundaries[,"L1"]))/x_grid_size
-  y_cells_num = (max(baseBoundaries[,"U2"]) - min(baseBoundaries[,"L2"]))/x_grid_size
+  for(m in 1:length(baseGridCornerQuantities)){
 
-  for(i in 1:x_cells_num){
+    TransitionGridValue = rep(0, (baseGrid_res*3 + 1)^2)
+    TransitionGridParX = rep(0, (baseGrid_res*3 + 1)^2)
+    TransitionGridParY = rep(0, (baseGrid_res*3 + 1)^2)
+    TransitionGridParXY = rep(0, (baseGrid_res*3 + 1)^2)
+    TransitionGridCounts = rep(0, (baseGrid_res*3 + 1)^2)
 
-    curSplitLocLow = (i-1)*x_grid_size + trans_length
-    curSplitLocHigh = i*x_grid_size - trans_length
-    cellsToSplit = which(newBoundaries$L1 < curSplitLocLow & newBoundaries$U1 > curSplitLocHigh)
-    cellOGIndex = newBoundaries[cellsToSplit,]$OGIndex
-    n_cells = length(cellsToSplit)
+    for(i in 1:(baseGrid_res^2)){
 
-    newBoundaries[cellsToSplit,]$U1 = curSplitLocLow
+      cur_coef = calculatePatch_KnownDerivates(baseGridBoundaries[i,],
+                                               CornerValues = baseGridCornerQuantities[[m]][,1,i],
+                                               CornerParXs = baseGridCornerQuantities[[m]][,2,i],
+                                               CornerParYs = baseGridCornerQuantities[[m]][,3,i],
+                                               CornerParXYs = baseGridCornerQuantities[[m]][,4,i])
 
-    curBoundaries = data.frame(L1 = c(rep(curSplitLocLow, n_cells), rep(curSplitLocHigh, n_cells)), L2 = rep(newBoundaries[cellsToSplit,]$L2,2), U1 = c(rep(curSplitLocHigh, n_cells), rep(curSplitLocHigh + trans_length, n_cells)), U2 = rep(newBoundaries[cellsToSplit,]$U2,2), OGIndex = rep(cellOGIndex, 2))
+      cur_col_indices = 1:3 + 3*((i-1) %% baseGrid_res)
+      cur_row_indices = 1:3 + 3*floor((i-1)/baseGrid_res)
 
-    newBoundaries = rbind(newBoundaries, curBoundaries)
+      cur_grid_indices = c((cur_row_indices[1]-1)*3*baseGrid_res + cur_col_indices,
+                           (cur_row_indices[2]-1)*3*baseGrid_res + cur_col_indices,
+                           (cur_row_indices[3]-1)*3*baseGrid_res + cur_col_indices)
+
+      cur_pts = matrix(c(newBoundaries[cur_grid_indices[1],c(1,2)],
+                         newBoundaries[cur_grid_indices[1],c(3,2)],
+                         newBoundaries[cur_grid_indices[2],c(3,2)],
+                         newBoundaries[cur_grid_indices[3],c(3,2)],
+                         newBoundaries[cur_grid_indices[4],c(1,2)],
+                         newBoundaries[cur_grid_indices[4],c(3,2)],
+                         newBoundaries[cur_grid_indices[5],c(3,2)],
+                         newBoundaries[cur_grid_indices[6],c(3,2)],
+                         newBoundaries[cur_grid_indices[7],c(1,2)],
+                         newBoundaries[cur_grid_indices[7],c(3,2)],
+                         newBoundaries[cur_grid_indices[8],c(3,2)],
+                         newBoundaries[cur_grid_indices[9],c(3,2)],
+                         newBoundaries[cur_grid_indices[7],c(1,4)],
+                         newBoundaries[cur_grid_indices[7],c(3,4)],
+                         newBoundaries[cur_grid_indices[8],c(3,4)],
+                         newBoundaries[cur_grid_indices[9],c(3,4)]), nrow = 16, ncol = 2, byrow = T)
+
+      cur_col_indices_pts = 1:4 + 3*((i-1) %% baseGrid_res)
+      cur_row_indices_pts = 1:4 + 3*floor((i-1)/baseGrid_res)
+
+      cur_pts_indices = c((cur_row_indices_pts[1]-1)*(3*baseGrid_res+1) + cur_col_indices_pts,
+                          (cur_row_indices_pts[2]-1)*(3*baseGrid_res+1) + cur_col_indices_pts,
+                          (cur_row_indices_pts[3]-1)*(3*baseGrid_res+1) + cur_col_indices_pts,
+                          (cur_row_indices_pts[4]-1)*(3*baseGrid_res+1) + cur_col_indices_pts)
+
+      curValues = rep(0,16)
+      curParXs = rep(0,16)
+      curParYs = rep(0,16)
+      curParXYs = rep(0,16)
+
+      for(j in 1:16){
+
+        curValues[j] = evaluateCubicPatchValue(cur_coef, border = baseGridBoundaries[i,], curPos = cur_pts[j,])
+        curParXs[j] = evaluateCubicPatchParX(cur_coef, border = baseGridBoundaries[i,], curPos = cur_pts[j,])
+        curParYs[j] = evaluateCubicPatchParY(cur_coef, border = baseGridBoundaries[i,], curPos = cur_pts[j,])
+        curParXYs[j] = evaluateCubicPatchParXY(cur_coef, border = baseGridBoundaries[i,], curPos = cur_pts[j,])
+
+      }
+
+      TransitionGridValue[cur_pts_indices] = TransitionGridValue[cur_pts_indices] + curValues
+      TransitionGridParX[cur_pts_indices] = TransitionGridParX[cur_pts_indices] + curParXs
+      TransitionGridParY[cur_pts_indices] = TransitionGridParY[cur_pts_indices] + curParYs
+      TransitionGridParXY[cur_pts_indices] = TransitionGridParXY[cur_pts_indices] + curParXYs
+      TransitionGridCounts[cur_pts_indices] = TransitionGridCounts[cur_pts_indices] + 1
+
+    }
+
+    TransitionGridValue = TransitionGridValue / TransitionGridCounts
+    TransitionGridParX = TransitionGridParX / TransitionGridCounts
+    TransitionGridParY = TransitionGridParY / TransitionGridCounts
+    TransitionGridParXY = TransitionGridParXY / TransitionGridCounts
+
+    curModelTransitionQuantities = cbind(TransitionGridValue, TransitionGridParX, TransitionGridParY, TransitionGridParXY)
+
+    allModelsTransitionCornerQuantities[[m]] = curModelTransitionQuantities
 
   }
 
 
-  for(i in 1:y_cells_num){
-
-    curSplitLocLow = (i-1)*y_grid_size + trans_length
-    curSplitLocHigh = i*y_grid_size - trans_length
-    cellsToSplit = which(newBoundaries$L2 < curSplitLocLow & newBoundaries$U2 > curSplitLocHigh)
-    cellOGIndex = newBoundaries[cellsToSplit,]$OGIndex
-    n_cells = length(cellsToSplit)
-
-    newBoundaries[cellsToSplit,]$U2 = curSplitLocLow
-
-    curBoundaries = data.frame(L1 = rep(newBoundaries[cellsToSplit,]$L1,2), L2 = c(rep(curSplitLocLow, n_cells), rep(curSplitLocHigh, n_cells)), U1 = rep(newBoundaries[cellsToSplit,]$U1,2), U2 = c(rep(curSplitLocHigh, n_cells), rep(curSplitLocHigh + trans_length, n_cells)), OGIndex = rep(cellOGIndex, 2))
-
-    newBoundaries = rbind(newBoundaries, curBoundaries)
-
-  }
+  allModelsTransitionCornerQuantities
 
 
-  transition_grid_x = sort(unique(c(newBoundaries$L1, newBoundaries$U1)))
-  transition_grid_y = sort(unique(c(newBoundaries$L2, newBoundaries$U2)))
-
-  transition_grid = expand.grid(transition_grid_x, transition_grid_y)
-
-  TransitionGridQuanities = matrix(ncol = 4, nrow = nrow(transition_grid))
-
-  ## Finish this
 
 }
+
+testUpdatedTransitionQuantities = updateTransitionsNewModel(10, 8/9, baseGridCornerQuantities = baseGridCornerQuantities, baseGridBoundaries = baseGridBoundaries)
+
+baseGridCornerQuantities[[4]] == baseGridCornerQuantities_Array[,,,4]
+
+abs(fit_extract$test_transBoundaries[1,,] - newBoundaries) < 0.01
+
+calculatePatch_KnownDerivates(baseGridBoundaries[1,], CornerValues = )
+
+abs(testUpdatedTransitionQuantities[[4]] - fit_extract$test_updatedQuantities[1,,]) < 0.00001
+## model 3
+
+baseCoefs = matrix(nrow = 100, ncol = 16)
+baseCoefs[1,]
+for(i in 1:100){
+
+  baseCoefs[i,] = calculatePatch_KnownDerivates(baseGridBoundaries[i,],
+                                           CornerValues = baseGridCornerQuantities[[4]][,1,i],
+                                           CornerParXs = baseGridCornerQuantities[[4]][,2,i],
+                                           CornerParYs = baseGridCornerQuantities[[4]][,3,i],
+                                           CornerParXYs = baseGridCornerQuantities[[4]][,4,i])
+
+}
+
+plotCubicPatch3D(sampledTree = list(border = c(0,0,1,1),
+                                    boundaries = data.frame(L1 = baseGridBoundaries[,1],
+                                                            L2 = baseGridBoundaries[,2],
+                                                            U1 = baseGridBoundaries[,3],
+                                                            U2 = baseGridBoundaries[,4]),
+                                    coefs = baseCoefs), grid_size = 0.01, z_limit = c(-4,5))
+
+plotCubicPatch3D(sampledTree = list(border = c(0,0,1,1),
+                                    boundaries = data.frame(L1 = newBoundaries[,1],
+                                                            L2 = newBoundaries[,2],
+                                                            U1 = newBoundaries[,3],
+                                                            U2 = newBoundaries[,4]),
+                                    coefs = fit_extract$test_updatedCoefs[1,,]), grid_size = 0.0025, z_limit = c(-4,5))
+
+UpdatedCoefs = calculateSurface_KnownCorners(data.frame(L1 = newBoundaries[,1],
+                                         L2 = newBoundaries[,2],
+                                         U1 = newBoundaries[,3],
+                                         U2 = newBoundaries[,4]),
+                              GridValues = testUpdatedTransitionQuantities[[4]][,1],
+                              GridParXs = testUpdatedTransitionQuantities[[4]][,2],
+                              GridParYs = testUpdatedTransitionQuantities[[4]][,3],
+                              GridParXYs = testUpdatedTransitionQuantities[[4]][,4])
+abs(fit_extract$test_updatedCoefs[1,,] - UpdatedCoefs) < 0.00001
+
+
+visualizeNewModelExistence(data.frame(L1 = baseGridBoundaries[,1],
+                                      L2 = baseGridBoundaries[,2],
+                                      U1 = baseGridBoundaries[,3],
+                                      U2 = baseGridBoundaries[,4]), ModelLogits = ModelLogits, model = 1)
+
+
+
 
 Borders = newBoundaries
 

@@ -536,6 +536,8 @@ plotCubicPatch3D = function(sampledTree, grid_size = 0.1, z_limit = c(-5,6)){
   test_grid = expand.grid(seq(border[1],border[3], grid_size), seq(border[2],border[4],grid_size))
   PatchValues = apply(test_grid, 1, FUN = evaluateSampledTreeValue, tree = sampledTree, coefs = sampledTree$coefs)
 
+  ggplot(data = data.frame(test_grid), aes(x = Var1, y = Var2, color = PatchValues)) + geom_point(shape = 15, size = 5)
+
   plottingGrid = data.frame(test_grid, PatchValues)
   names(plottingGrid) = c('X','Y','Value')
 
@@ -753,4 +755,7 @@ sample_NewPatches = function(ModelLogits, k = 0.1){
 
 
 }
+
+
+basePatches = sample_NewPatches(ModelLogits, k = 0.5)
 

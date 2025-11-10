@@ -413,14 +413,52 @@ generate_grid_tree_boundaries = function(grid_res){
 
   full_dim_boundaries = 0:grid_res / grid_res
 
-  L1 = rep(full_dim_boundaries[1:4],4)
-  L2 = rep(full_dim_boundaries[1:4],each = 4)
-  U1 = rep(full_dim_boundaries[2:5],4)
-  U2 = rep(full_dim_boundaries[2:5],each = 4)
+  L1 = rep(full_dim_boundaries[1:grid_res],grid_res)
+  L2 = rep(full_dim_boundaries[1:grid_res],each = grid_res)
+  U1 = rep(full_dim_boundaries[1:grid_res + 1],grid_res)
+  U2 = rep(full_dim_boundaries[1:grid_res + 1],each = grid_res)
 
   matrix(c(L1, L2, U1, U2), ncol = 4, byrow = F)
 
 }
+
+generate_trans_tree_boundaries = function(baseGrid_res, trans_prop){
+
+  base_dim_boundaries = 0:baseGrid_res / baseGrid_res
+  full_res = 3*baseGrid_res
+
+  base_cell_size = 1/baseGrid_res
+  trans_length = base_cell_size*(1 - sqrt(1-trans_prop))/2
+
+  full_dim_boundaries = rep(0, full_res + 1)
+
+  for(i in 1:baseGrid_res){
+
+    cur_low = base_dim_boundaries[i]
+    cur_mid = base_dim_boundaries[i] + trans_length
+    cur_high = base_dim_boundaries[i+1] - trans_length
+
+    start_index = 3*(i-1)
+
+    full_dim_boundaries[start_index + 1] = cur_low
+    full_dim_boundaries[start_index + 2] = cur_mid
+    full_dim_boundaries[start_index + 3] = cur_high
+
+  }
+
+  full_dim_boundaries[full_res+1] = base_dim_boundaries[baseGrid_res+1]
+
+  L1 = rep(full_dim_boundaries[1:full_res],full_res)
+  L2 = rep(full_dim_boundaries[1:full_res],each = full_res)
+  U1 = rep(full_dim_boundaries[1:full_res + 1],full_res)
+  U2 = rep(full_dim_boundaries[1:full_res + 1],each = full_res)
+
+  matrix(c(L1, L2, U1, U2), ncol = 4, byrow = F)
+
+}
+
+generate_grid_tree_boundaries(10)
+generate_trans_tree_boundaries(4, 8/9) == fit_extract$test_transBoundaries[1,,]
 
 grid_tree = generate_grid_tree(0.01, c(0,0,1,1))
 

@@ -414,9 +414,9 @@ visualizeNewModelExistence = function(Boundaries, ModelLogits, model){
 
 tree = generate_grid_tree(0.1, c(0,0,1,1))
 
-sample_new_models_one_pass(tree, 5, 1)
+ModelLogits = sample_new_models_one_pass(tree, 5, 5)
 
-visualizeNewModelExistence(Boundaries = tree$boundaries, ModelLogits = sample_new_models_one_pass(tree, 5, 5), model = 1)
+visualizeNewModelExistence(Boundaries = tree$boundaries, ModelLogits = ModelLogits, model = 4)
 
 Energy_Pair_New = function(cell1_logits, cell2_logits){
 
