@@ -141,15 +141,15 @@ phySpaceData = function(GMM, compSpace_Data, phySpaceBorder){
 }
 
 sampled_GMM = testGMM_Right
-tree = testPrior$TrajectorySurfaces
+tree = Traj1
 phy_Data = testObsData
 comp_Data = testCompData
 phySpaceBorder = c(-5,-5,5,5)
 
-visualizeSampledTransformation = function(tree, phySpaceBorder, n_data_points = 10000, boundary_grid_size = 0.01){
+visualizeSampledTransformation = function(tree, phySpaceBorder, n_data_points = 10000, boundary_grid_size = 0.01, sampled_GMM, phy_Data){
 
   if(n_data_points == 0){
-    sampled_GMM = sampleGMM(phySpaceBorder)
+    if(missing(sampled_GMM)){sampled_GMM = sampleGMM(phySpaceBorder)}
 
     x_splits = unique(c(tree$boundaries$L1, tree$boundaries$U1))
     x_splits = x_splits[2:(length(x_splits)-1)]
@@ -187,8 +187,10 @@ visualizeSampledTransformation = function(tree, phySpaceBorder, n_data_points = 
 
     ggarrange(phySpacePlot, compSpacePlot, nrow = 1)
   } else{
-    sampled_GMM = sampleGMM(phySpaceBorder)
-    phy_Data = simulateGMMData(sampled_GMM, n_data_points)
+    if(missing(sampled_GMM)){sampled_GMM = sampleGMM(phySpaceBorder)}
+    if(missing(phy_Data)){phy_Data = simulateGMMData(sampled_GMM, n_data_points)}
+    names(phy_Data) = c("X","Y","Model")
+
     comp_Data = compSpaceData(sampled_GMM, phy_Data)
 
     x_splits = unique(c(tree$boundaries$L1, tree$boundaries$U1))
@@ -218,7 +220,7 @@ visualizeSampledTransformation = function(tree, phySpaceBorder, n_data_points = 
       geom_segment(aes(x = outerBorder[1], y = outerBorder[4], xend = outerBorder[3], yend = outerBorder[4]), color = 'black') +
       ggtitle("Physical Space") + theme(legend.position = "none", plot.title = element_text(hjust = 0.5))
 
-    compSpacePlot = ggplot() + geom_point(data = comp_Data, aes(x = X, y = Y, color = as.factor(Particle))) +
+    compSpacePlot = ggplot() + geom_point(data = comp_Data, aes(x = X, y = Y, color = as.factor(Model))) +
       geom_segment(data = tree$boundaries, aes(x = L1, y = L2, xend = L1, yend = U2), color = 'black') +
       geom_segment(data = tree$boundaries, aes(x = U1, y = L2, xend = U1, yend = U2), color = 'black') +
       geom_segment(data = tree$boundaries, aes(x = L1, y = L2, xend = U1, yend = L2), color = 'black') +

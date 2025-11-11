@@ -138,6 +138,15 @@ plotUpdatedTree$ModelSurfaces[[2]]
 
 sampledGMM = sampleGMM(c(-5,-5,5,5))
 
+baseGridBoundaries = generate_grid_tree_boundaries(10)
+tree = generate_grid_tree(0.1, c(0,0,1,1))
+ModelLogits = sample_new_models_one_pass(tree, 5, 5)
+basePatches = sample_NewPatches(ModelLogits, k = 0.5)
+
+library(abind)
+baseGridCornerQuantities_Array = do.call(abind, c(basePatches, along = 4))
+dim(baseGridCornerQuantities_Array)
+
 # --- 2. Assemble the Stan Data List ---
 # Names must match the 'data' block in the .stan file
 stan_data <- list(
@@ -167,6 +176,8 @@ stan_data <- list(
 # This will take a minute, but it uses the REAL compiler
 mod <- rstan::stan_model("STAN_Files/SurfaceTrajectoryOnlyFunctions.stan")
 mod <- rstan::stan_model("STAN_Files/test_functions.stan")
+mod <- rstan::stan_model("STAN_Files/SurfaceTrajectory.stan")
+
 
 # --- 4. Run the Model to Test the Function ---
 # This part is very fast

@@ -176,7 +176,21 @@ functions {
     return dot_product(coefs, polyTerms);
   }
 
-  real evaluateSampledSurfaceValue(matrix Boundaries, matrix coefs, vector curPos) {
+  real evaluateSampledSurfaceValue(matrix Boundaries, data int comp_res, matrix coefs, data vector curPos) {
+
+    int cur_col_index = to_int(comp_res * curPos[1] + 1);
+    int cur_row_index = to_int(comp_res * curPos[2] + 1);
+
+    int cur_index = (cur_row_index-1)*comp_res + cur_col_index;
+
+
+    vector[4] cur_border = Boundaries[cur_index, 1:4]';
+    vector[16] cur_coefs = coefs[cur_index, 1:16]';
+
+    return evaluateCubicPatchValue(cur_coefs, cur_border, curPos);
+  }
+
+  real evaluateSampledSurfaceValue_1(matrix Boundaries, matrix coefs, vector curPos) {
 
     // Use 0 as a sentinel value (since Stan indices are 1-based)
     int cur_index = 0;
