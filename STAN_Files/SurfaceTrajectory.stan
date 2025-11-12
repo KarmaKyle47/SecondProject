@@ -185,7 +185,7 @@ functions {
 
 
     vector[4] cur_border = Boundaries[cur_index, 1:4]';
-    vector[16] cur_coefs = coefs[cur_index, 1:16]';
+    vector[16] cur_coefs = to_vector(coefs[cur_index, 1:16]);
 
     return evaluateCubicPatchValue(cur_coefs, cur_border, curPos);
   }
@@ -668,7 +668,7 @@ transformed parameters {
 
   for(i in 1:N_models){
 
-    UpdatedCornerQuantities[1:trans_corner_res2, 1:4, i] = updateCornerQuantities(comp_res, trans_prop, baseCornerQuanities, baseBoundaries, i);
+    UpdatedCornerQuantities[1:trans_corner_res2, 1:4, i] = to_array_2d(updateCornerQuantities(comp_res, trans_prop, baseCornerQuanities, baseBoundaries, i));
 
   }
 
@@ -676,11 +676,11 @@ transformed parameters {
 
   for(i in 1:N_models){
 
-    cur_Coefs[1:trans_res2, 1:16, i] = calculateSurface_KnownCorners(cur_transBoundaries,
-                                                                    UpdatedCornerQuantities[,1,i],
-                                                                    UpdatedCornerQuantities[,2,i],
-                                                                    UpdatedCornerQuantities[,3,i],
-                                                                    UpdatedCornerQuantities[,4,i]);
+    cur_Coefs[1:trans_res2, 1:16, i] = to_array_2d(calculateSurface_KnownCorners(cur_transBoundaries,
+                                                                    to_vector(UpdatedCornerQuantities[,1,i]),
+                                                                    to_vector(UpdatedCornerQuantities[,2,i]),
+                                                                    to_vector(UpdatedCornerQuantities[,3,i]),
+                                                                    to_vector(UpdatedCornerQuantities[,4,i])));
   }
 
   matrix[comp_res2, N_models] log_prob_on;
@@ -727,7 +727,7 @@ model {
 
   for(i in 1:N_data){
 
-    cur_TrajWeightedVel = TrajWeightedBaseVectorFields(Data[i,1], Data[i,2:3]', compSpacePos_data[i, 1:2]',
+    vector[2] cur_TrajWeightedVel = TrajWeightedBaseVectorFields(Data[i,1], Data[i,2:3]', compSpacePos_data[i, 1:2]',
                                                        cur_transBoundaries, trans_res, cur_Coefs, N_models);
 
     target += normal_lpdf(Data[i,4:5]| cur_TrajWeightedVel, sigma_vel);
