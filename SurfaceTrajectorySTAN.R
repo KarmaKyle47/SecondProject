@@ -172,6 +172,32 @@ stan_data <- list(
   y_dummy = 0.0 # Just a placeholder
 )
 
+GMM_means = matrix(c(0,0,0,0), nrow = 2)
+GMM_cov = array(c(1,0,0,1,1,0,0,1), dim = c(2,2,2))
+GMM_weights = c(1,0)
+
+Data_t = rep(0,100)
+Data_pos = matrix(rnorm(200), nrow = 100)
+Data_vel = matrix(nrow = 100, ncol = 2)
+
+for(i in 1:100){
+
+  Data_vel[i,] = rowSums(baseVectorFields(0, Data_pos[i,])) + rnorm(2,0,0.1)
+
+}
+
+Stan_Data = matrix(c(Data_t, Data_pos, Data_vel), nrow = 100, ncol = 5, byrow = F)
+
+stan_data = list(
+  N_data = 100,                 # Number of data points
+  comp_res = 1,                 # Computational Grid Resolution
+  Data = Stan_Data,                 # Particle Velocities with Positions for now (t, x, y, v_x, v_y)
+  GMM_num = 2,              # Number of Gaussian Mixtures in the Transformation
+  GMM_means = GMM_means,     # Means of all Gaussian Mixtures;
+  GMM_cov = GMM_cov,        # Covariance matrices of all Mixtures
+  GMM_weights = GMM_weights #Weights for Mixtures
+)
+
 # --- 3. Compile the Stan Model ---
 # This will take a minute, but it uses the REAL compiler
 mod <- rstan::stan_model("STAN_Files/SurfaceTrajectoryOnlyFunctions.stan")
