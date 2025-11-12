@@ -176,7 +176,7 @@ functions {
     return dot_product(coefs, polyTerms);
   }
 
-  real evaluateSampledSurfaceValue(matrix Boundaries, data int comp_res, matrix coefs, data vector curPos) {
+  real evaluateSampledSurfaceValue(matrix Boundaries, data int comp_res, real[,] coefs, data vector curPos) {
 
     int cur_col_index = to_int(comp_res * curPos[1] + 1);
     int cur_row_index = to_int(comp_res * curPos[2] + 1);
@@ -561,22 +561,19 @@ functions {
 
   }
 
-  vector TrajWeightedBaseVectorFields(data real t, data vector curPos, data matrix GMM_means, data real[,,] GMM_cov, data vector GMM_weights,
-                                      matrix Boundaries, data int comp_res, real[,,] coefs, data int N_models,
-                                      data vector GMM_sd_x, data vector GMM_sd_y_cond, data vector GMM_cond_slope){
+  vector TrajWeightedBaseVectorFields(data real t, data vector phySpacePos, data vector compSpacePos,
+                                      matrix Boundaries, data int trans_res, real[,,] coefs, data int N_models){
 
-
-    vector[2] compSpacePos = getCompSpacePos(GMM_means, GMM_cov, GMM_weights, curPos, GMM_sd_x, GMM_sd_y_cond, GMM_cond_slope);
 
     vector[N_models] TrajValues;
 
     for(i in 1:N_models){
 
-      TrajValues[i] = evaluateSampledSurfaceValue(Boundaries, comp_res, coefs[,,i], compSpacePos);
+      TrajValues[i] = evaluateSampledSurfaceValue(Boundaries, trans_res, coefs[,,i], compSpacePos);
 
     }
 
-    matrix[2,N_models] ModelVels = baseVectorFields(t, curPos);
+    matrix[2,N_models] ModelVels = baseVectorFields(t, phySpacePos);
 
     vector[2] TrajWeightedVel = ModelVels * TrajValues;
 
@@ -645,6 +642,12 @@ transformed data {
     GMM_sd_x[i] = sqrt(GMM_cov[1,1,i]);
     GMM_cond_slope[i] = cond_slope;
     GMM_sd_y_cond[i] = sqrt(GMM_cov[2,2,i] - cond_slope * GMM_cov[1,2,i]);
+  }
+
+  matrix[N_data, 2] compSpacePos_data;
+  for (i in 1:N_data) {
+    compSpacePos_data[i, 1:2] = getCompSpacePos(GMM_means, GMM_cov, GMM_weights, Data[i, 2:3]',
+                                                GMM_sd_x, GMM_sd_y_cond, GMM_cond_slope)';
   }
 }
 
@@ -724,9 +727,8 @@ model {
 
   for(i in 1:N_data){
 
-    cur_TrajWeightedVel = TrajWeightedBaseVectorFields(Data[i,1], Data[i,2:3], GMM_means, GMM_cov, GMM_weights,
-                                                       cur_transBoundaries, trans_res, cur_Coefs, N_models,
-                                                       GMM_sd_x, GMM_sd_y_cond, GMM_cond_slope);
+    cur_TrajWeightedVel = TrajWeightedBaseVectorFields(Data[i,1], Data[i,2:3]', compSpacePos_data[i, 1:2]',
+                                                       cur_transBoundaries, trans_res, cur_Coefs, N_models);
 
     target += normal_lpdf(Data[i,4:5]| cur_TrajWeightedVel, sigma_vel);
 
