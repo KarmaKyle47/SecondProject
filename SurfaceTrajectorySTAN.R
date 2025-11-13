@@ -232,14 +232,13 @@ fit <- rstan::sampling(
 )
 
 # --- 5. Extract and Inspect the Result ---
-fit_extract <- extract(fit)
-plot(fit_extract$)
+fit_extract <- rstan::extract(fit)
+rstan::extract()
 print(fit_extract)
 Rhat(fit)
-fit_extract$
-plot(fit_extract$baseCornerQuanities[,1,4,1,2])
+plot(fit_extract$modelLogits[,1,1])
 plot(fit_extract$modelLogits[,4,2])
-plot(fit_extract$logit_temp[fit_extract$logit_temp < 100000000000000000000000000000000])
+plot(fit_extract$baseCornerQuanities[,1,1,1,2])
 dim(fit_extract$baseCornerQuanities)
 
 # 'test_output' is what we named our variable in 'generated quantities'
