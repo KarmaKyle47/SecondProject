@@ -535,13 +535,13 @@ functions {
     return total_energy;
   }
 
-  real modelLogits_lpdf(matrix modelLogits, matrix baseCompGridBoundaries, real temp, data real selfPenalty, data int n_models){
+  real modelLogits_lpdf(matrix modelLogits, matrix baseCompGridBoundaries, real logit_temp, data real selfPenalty, data int n_models){
 
     real energy;
 
     energy = calculateBaseGridEnergy(baseCompGridBoundaries, modelLogits, selfPenalty, n_models);
 
-    return -1*energy/temp;
+    return -1*energy/logit_temp;
 
 
   }
@@ -592,25 +592,27 @@ data {
   matrix[GMM_num,2] GMM_means; // Means of all Gaussian Mixtures;
   real GMM_cov[2,2,GMM_num]; // Covariance matrices of all Mixtures
   simplex[GMM_num] GMM_weights; // Weights for Mixtures
+  real trans_prop;
+  real logit_temp;
 }
 
 transformed data {
   real<lower=0> traj_k_alpha;      // traj_k alpha for inv_gamma
   real<lower=0> traj_k_beta;       // traj_k beta for inv_gamma
-  real<lower=0> logit_temp_alpha;  // logit_temp alpha for inv_gamma
-  real<lower=0> logit_temp_beta;   // logit_temp beta for inv_gamma
-  real<lower=0> trans_prop_alpha;  // trans_prop alpha for beta
-  real<lower=0> trans_prop_beta;   // trans_prop beta for beta
+  //real<lower=0> logit_temp_alpha;  // logit_temp alpha for inv_gamma
+  //real<lower=0> logit_temp_beta;   // logit_temp beta for inv_gamma
+  //real<lower=0> trans_prop_alpha;  // trans_prop alpha for beta
+  //real<lower=0> trans_prop_beta;   // trans_prop beta for beta
   real<lower=0> sigma_vel_alpha;  // logit_temp alpha for inv_gamma
   real<lower=0> sigma_vel_beta;   // logit_temp beta for inv_gamma
   traj_k_alpha = 0.1;
   traj_k_beta = 0.1;
-  logit_temp_alpha = 0.1;
-  logit_temp_beta = 0.1;
+  //logit_temp_alpha = 1;
+  //logit_temp_beta = 24;
   sigma_vel_alpha = 0.1;
   sigma_vel_beta = 0.1;
-  trans_prop_alpha = 1;
-  trans_prop_beta = 1;
+  //trans_prop_alpha = 1;
+  //trans_prop_beta = 1;
 
   real<lower=0> selfPenalty; // self penalty for the modelLogits energy (sum = 2)
   selfPenalty = 10;
@@ -649,20 +651,21 @@ transformed data {
     compSpacePos_data[i, 1:2] = getCompSpacePos(GMM_means, GMM_cov, GMM_weights, Data[i, 2:3]',
                                                 GMM_sd_x, GMM_sd_y_cond, GMM_cond_slope)';
   }
+
+  matrix[trans_res2, 4] cur_transBoundaries = generate_TransComp_boundaries(comp_res, trans_prop);
+
 }
 
 parameters {
   real<lower=0> traj_k;      // SD of the trajectory corner quantities, if on
-  real<lower=0> logit_temp;    // Temperature for the boltzmann distribution on the model logits
-  real<lower=0,upper=1> trans_prop; // Proportion of base cell to act as transition
+  //real<lower=0> logit_temp;    // Temperature for the boltzmann distribution on the model logits
+  //real<lower=0,upper=1> trans_prop; // Proportion of base cell to act as transition
   matrix[comp_res*comp_res, N_models] modelLogits; // The logit (equivelantly probability) of each model being on in each base region
   real baseCornerQuanities[4,4,comp_res*comp_res,N_models]; // Corner quanities for the base grid
   real<lower=0> sigma_vel; // Velocity Sigma
 }
 
 transformed parameters {
-
-  matrix[trans_res2, 4] cur_transBoundaries = generate_TransComp_boundaries(comp_res, trans_prop);
 
   real UpdatedCornerQuantities[trans_corner_res2, 4, N_models];
 
@@ -697,8 +700,8 @@ transformed parameters {
 model {
   // Priors
   traj_k ~ inv_gamma(traj_k_alpha, traj_k_beta); // approx jeffrey's
-  logit_temp ~ inv_gamma(logit_temp_alpha, logit_temp_beta); //approx jeffrey's
-  trans_prop ~ beta(trans_prop_alpha, trans_prop_beta); //uniform
+  //logit_temp ~ inv_gamma(logit_temp_alpha, logit_temp_beta); //approx jeffrey's
+  //trans_prop ~ beta(trans_prop_alpha, trans_prop_beta); //uniform
   sigma_vel ~ inv_gamma(sigma_vel_alpha, sigma_vel_beta); //approx jeffrey's
 
   target += modelLogits_lpdf(modelLogits | baseBoundaries, logit_temp, selfPenalty, N_models);

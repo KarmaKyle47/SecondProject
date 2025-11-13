@@ -28,6 +28,7 @@ ggplot(testCompData, aes(x = X, y = Y, color = Particle)) + geom_point() + theme
 
 
 library(rstan)
+options(mc.cores = parallel::detectCores())
 
 # This compiles the functions and loads them into your R session
 expose_stan_functions("STAN_Files/SurfaceTrajectoryOnlyFunctions.stan")
@@ -172,30 +173,38 @@ stan_data <- list(
   y_dummy = 0.0 # Just a placeholder
 )
 
-GMM_means = matrix(c(0,0,0,0), nrow = 2)
-GMM_cov = array(c(1,0,0,1,1,0,0,1), dim = c(2,2,2))
-GMM_weights = c(1,0)
+GMM_means = matrix(c(0,0,1,1), nrow = 2, byrow = T)
+GMM_cov = array(c(0.1,0,0,0.1,0.1,0,0,0.1), dim = c(2,2,2))
+GMM_weights = c(0.5,0.5)
 
 Data_t = rep(0,100)
-Data_pos = matrix(rnorm(200), nrow = 100)
+Data_pos = matrix(nrow = 100, ncol = 2)
 Data_vel = matrix(nrow = 100, ncol = 2)
 
 for(i in 1:100){
+
+  which_normal = sample(c(1,2), 1, prob = GMM_weights)
+  Data_pos[i,] = mvrnorm(mu = GMM_means[which_normal,], Sigma = GMM_cov[,,which_normal])
 
   Data_vel[i,] = rowSums(baseVectorFields(0, Data_pos[i,])) + rnorm(2,0,0.1)
 
 }
 
+plot(Data_pos)
+plot(Data_vel)
+
 Stan_Data = matrix(c(Data_t, Data_pos, Data_vel), nrow = 100, ncol = 5, byrow = F)
 
 stan_data = list(
   N_data = 100,                 # Number of data points
-  comp_res = 1,                 # Computational Grid Resolution
+  comp_res = 2,                 # Computational Grid Resolution
   Data = Stan_Data,                 # Particle Velocities with Positions for now (t, x, y, v_x, v_y)
   GMM_num = 2,              # Number of Gaussian Mixtures in the Transformation
   GMM_means = GMM_means,     # Means of all Gaussian Mixtures;
   GMM_cov = GMM_cov,        # Covariance matrices of all Mixtures
-  GMM_weights = GMM_weights #Weights for Mixtures
+  GMM_weights = GMM_weights, #Weights for Mixtures
+  trans_prop = 8/9,
+  logit_temp = 0.04
 )
 
 # --- 3. Compile the Stan Model ---
@@ -210,14 +219,28 @@ mod <- rstan::stan_model("STAN_Files/SurfaceTrajectory.stan")
 fit <- rstan::sampling(
   object = mod,
   data = stan_data,
-  algorithm = "Fixed_param",  # <-- The magic trick
+  algorithm = "NUTS",  # <-- The magic trick
   iter = 1,                   # We only need one "draw"
   warmup = 0,
-  chains = 1
+  chains = 4
+)
+
+fit <- rstan::sampling(
+  object = mod,
+  data = stan_data,
+  algorithm = "NUTS"
 )
 
 # --- 5. Extract and Inspect the Result ---
-fit_extract <- rstan::extract(fit)
+fit_extract <- extract(fit)
+plot(fit_extract$)
+print(fit_extract)
+Rhat(fit)
+fit_extract$
+plot(fit_extract$baseCornerQuanities[,1,4,1,2])
+plot(fit_extract$modelLogits[,4,2])
+plot(fit_extract$logit_temp[fit_extract$logit_temp < 100000000000000000000000000000000])
+dim(fit_extract$baseCornerQuanities)
 
 # 'test_output' is what we named our variable in 'generated quantities'
 fit_extract$test_baseBoundaries[1,,] == baseTreeSampled[,1:4]# Get the first (and only) row
