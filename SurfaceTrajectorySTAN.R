@@ -173,30 +173,59 @@ stan_data <- list(
   y_dummy = 0.0 # Just a placeholder
 )
 
+baseVectorFields = function(t, curPos){
+
+  f1 = c(curPos[2],-1*curPos[1])/sqrt(sum(c(curPos[1],curPos[2])^2))
+  f2 = c(curPos[1],curPos[2])/sqrt(sum(c(curPos[1],curPos[2])^2))
+  f3 = c(sqrt(2),sqrt(2))
+  matrix(c(f1,f2,f3), nrow = 2, byrow = F)
+
+}
+
+tree = generate_grid_tree(0.5,c(0,0,1,1))
+
+sampledTree = sampleFullCubicSurface_AllModels_New(border_length = 1, cells_per_dim = 2, num_models = 3, k = 0.5, logit_sd = 5, trans_prop = 8/9, prior_mean = 1)
+
+sampledTreePlot = plotFullTreeNew(sampledTree, surface_grid_size = 0.01)
+sampledTreePlot$ModelSurfaces[[3]]
+
+sampled_ModelProbs = sample_new_models_one_pass(tree, 3, logit_sd = 5)
+sample_Coefs = sample_NewPatches(sampled_ModelProbs, k = 0.5, prior_mean = 1)
+sample_Coefs_Updated = updateTransitionsNewModel(2, 8/9, baseGridCornerQuantities = sample_Coefs, baseGridBoundaries = as.matrix(tree$boundaries))
+
+
+visualizeNewModelExistence(tree$boundaries, sampled_ModelProbs, model = 2)
+
+sampleGMM(c(-2,-2,2,2), lambda = 1)
+
+sampled_GMM = list(Mean = GMM_means,
+                   Cov = asplit(GMM_cov, MARGIN = 3),
+                   Weights = GMM_weights)
+
 GMM_means = matrix(c(0,0,1,1), nrow = 2, byrow = T)
 GMM_cov = array(c(0.1,0,0,0.1,0.1,0,0,0.1), dim = c(2,2,2))
 GMM_weights = c(0.5,0.5)
 
-Data_t = rep(0,100)
-Data_pos = matrix(nrow = 100, ncol = 2)
-Data_vel = matrix(nrow = 100, ncol = 2)
+Data_t = rep(0,1000)
+Data_pos = matrix(nrow = 1000, ncol = 2)
+Data_vel = matrix(nrow = 1000, ncol = 2)
 
-for(i in 1:100){
+for(i in 1:1000){
 
   which_normal = sample(c(1,2), 1, prob = GMM_weights)
   Data_pos[i,] = mvrnorm(mu = GMM_means[which_normal,], Sigma = GMM_cov[,,which_normal])
 
-  Data_vel[i,] = rowSums(baseVectorFields(0, Data_pos[i,])) + rnorm(2,0,0.1)
+  Data_vel[i,] = TrajWeightedBaseVectorFields(0,Data_pos[i,], baseVectorFields, compPatchTree = sampledTree, GMM = sampled_GMM) + rnorm(2,0,0.01)
 
 }
 
 plot(Data_pos)
 plot(Data_vel)
 
-Stan_Data = matrix(c(Data_t, Data_pos, Data_vel), nrow = 100, ncol = 5, byrow = F)
+Stan_Data = matrix(c(Data_t, Data_pos, Data_vel), nrow = 1000, ncol = 5, byrow = F)
 
 stan_data = list(
-  N_data = 100,                 # Number of data points
+  N_data = 1000,                 # Number of data points
   comp_res = 2,                 # Computational Grid Resolution
   Data = Stan_Data,                 # Particle Velocities with Positions for now (t, x, y, v_x, v_y)
   GMM_num = 2,              # Number of Gaussian Mixtures in the Transformation
@@ -228,15 +257,24 @@ fit <- rstan::sampling(
 fit <- rstan::sampling(
   object = mod,
   data = stan_data,
-  algorithm = "NUTS"
+  algorithm = "NUTS",
+  chains = 4,
+  warmup = 1000,
+  iter = 5000
 )
+
+?sampling
 
 # --- 5. Extract and Inspect the Result ---
 fit_extract <- rstan::extract(fit)
 rstan::extract()
 print(fit_extract)
 Rhat(fit)
-plot(fit_extract$modelLogits[,1,1])
+plot(fit_extract$traj_k[10001:20000], type = 'l')
+plot(fit_extract$modelProbs[,2,1], type = 'l')
+hist(fit_extract$modelProbs[,4,2])
+hist(fit_extract$sigma_vel)
+
 plot(fit_extract$modelLogits[,4,2])
 plot(fit_extract$baseCornerQuanities[,1,1,1,2])
 dim(fit_extract$baseCornerQuanities)

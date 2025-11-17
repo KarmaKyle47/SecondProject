@@ -495,17 +495,17 @@ functions {
 
   }
 
-  real energySelf(row_vector cell_logits, data real penalty, data int n_models){
+  real energySelf(row_vector cell_probs, data real penalty, data int n_models){
 
-    row_vector[n_models] cell_probs;
-    cell_probs = inv_logit(cell_logits);
+    // row_vector[n_models] cell_probs;
+    // cell_probs = inv_logit(cell_logits);
 
     real cell_energy = penalty*(sum(cell_probs) - 2)^2;
     return cell_energy;
 
   }
 
-  real calculateBaseGridEnergy(matrix baseCompGridBoundaries, matrix ModelLogits, data real selfPenalty, data int n_models) {
+  real calculateBaseGridEnergy(matrix baseCompGridBoundaries, matrix ModelProbs, data real selfPenalty, data int n_models) {
 
     int n_cells = rows(baseCompGridBoundaries);
     int n_grid_length = to_int(round(sqrt(n_cells)));
@@ -516,30 +516,30 @@ functions {
     for (i in 1:n_cells) {
 
       // --- 1. Add Self Energy (same as before) ---
-      total_energy += energySelf(ModelLogits[i, 1:n_models], selfPenalty, n_models);
+      total_energy += energySelf(ModelProbs[i, 1:n_models], selfPenalty, n_models);
 
       // --- 2. Add "Right" Pair Energy ---
       // Check if 'i' is NOT in the far-right column
       // (The modulo operator % is 0 for the last cell in a row)
       if (i % n_grid_length != 0) {
-        total_energy += mean(square(ModelLogits[i, 1:n_models] - ModelLogits[i + 1, 1:n_models]));
+        total_energy += mean(square(ModelProbs[i, 1:n_models] - ModelProbs[i + 1, 1:n_models]));
       }
 
       // --- 3. Add "Up" Pair Energy ---
       // Check if 'i' is NOT in the top row
       if (i <= (n_cells - n_grid_length)) {
-        total_energy += mean(square(ModelLogits[i, 1:n_models] - ModelLogits[i + n_grid_length, 1:n_models]));
+        total_energy += mean(square(ModelProbs[i, 1:n_models] - ModelProbs[i + n_grid_length, 1:n_models]));
       }
     }
 
     return total_energy;
   }
 
-  real modelLogits_lpdf(matrix modelLogits, matrix baseCompGridBoundaries, real logit_temp, data real selfPenalty, data int n_models){
+  real modelLogits_lpdf(matrix ModelProbs, matrix baseCompGridBoundaries, real logit_temp, data real selfPenalty, data int n_models){
 
     real energy;
 
-    energy = calculateBaseGridEnergy(baseCompGridBoundaries, modelLogits, selfPenalty, n_models);
+    energy = calculateBaseGridEnergy(baseCompGridBoundaries, ModelProbs, selfPenalty, n_models);
 
     return -1*energy/logit_temp;
 
@@ -660,7 +660,7 @@ parameters {
   real<lower=0> traj_k;      // SD of the trajectory corner quantities, if on
   //real<lower=0> logit_temp;    // Temperature for the boltzmann distribution on the model logits
   //real<lower=0,upper=1> trans_prop; // Proportion of base cell to act as transition
-  matrix[comp_res*comp_res, N_models] modelLogits; // The logit (equivelantly probability) of each model being on in each base region
+  matrix<lower=0,upper=1>[comp_res*comp_res, N_models] modelProbs; // The logit (equivelantly probability) of each model being on in each base region
   real baseCornerQuanities[4,4,comp_res*comp_res,N_models]; // Corner quanities for the base grid
   real<lower=0> sigma_vel; // Velocity Sigma
 }
@@ -686,14 +686,14 @@ transformed parameters {
                                                                     to_vector(UpdatedCornerQuantities[,4,i])));
   }
 
-  matrix[comp_res2, N_models] log_prob_on;
-  matrix[comp_res2, N_models] log_prob_off;
-
-  for (m in 1:N_models) {
-    // modelLogits[, m] is a 'vector'
-    log_prob_on[, m] = log_inv_logit(modelLogits[, m]);
-    log_prob_off[, m] = log1m_inv_logit(modelLogits[, m]);
-  }
+  // matrix[comp_res2, N_models] log_prob_on;
+  // matrix[comp_res2, N_models] log_prob_off;
+  //
+  // for (m in 1:N_models) {
+  //   // modelLogits[, m] is a 'vector'
+  //   log_prob_on[, m] = log_inv_logit(modelLogits[, m]);
+  //   log_prob_off[, m] = log1m_inv_logit(modelLogits[, m]);
+  // }
 
 }
 
@@ -704,23 +704,26 @@ model {
   //trans_prop ~ beta(trans_prop_alpha, trans_prop_beta); //uniform
   sigma_vel ~ inv_gamma(sigma_vel_alpha, sigma_vel_beta); //approx jeffrey's
 
-  target += modelLogits_lpdf(modelLogits | baseBoundaries, logit_temp, selfPenalty, N_models);
+  target += modelLogits_lpdf(modelProbs | baseBoundaries, logit_temp, selfPenalty, N_models);
 
   for(m in 1:N_models){
 
     for(c in 1:comp_res2){
 
-      target += log_sum_exp(log_prob_on[c,m] + normal_lpdf(baseCornerQuanities[,1,c,m]| prior_traj_mean, traj_k), // values
-                            log_prob_off[c,m] + normal_lpdf(baseCornerQuanities[,1,c,m]| 0, off_traj_sd));
+      real cur_log_prob_on = log(modelProbs[c,m]);
+      real cur_log_prob_off = log(1 - modelProbs[c,m]);
 
-      target += log_sum_exp(log_prob_on[c,m] + normal_lpdf(baseCornerQuanities[,2,c,m]| 0, traj_k), //parX
-                            log_prob_off[c,m] + normal_lpdf(baseCornerQuanities[,2,c,m]| 0, off_traj_sd));
+      target += log_sum_exp(cur_log_prob_on + normal_lpdf(baseCornerQuanities[,1,c,m]| prior_traj_mean, traj_k), // values
+                            cur_log_prob_off + normal_lpdf(baseCornerQuanities[,1,c,m]| 0, off_traj_sd));
 
-      target += log_sum_exp(log_prob_on[c,m] + normal_lpdf(baseCornerQuanities[,3,c,m]| 0, traj_k), //parY
-                            log_prob_off[c,m] + normal_lpdf(baseCornerQuanities[,3,c,m]| 0, off_traj_sd));
+      target += log_sum_exp(cur_log_prob_on + normal_lpdf(baseCornerQuanities[,2,c,m]| 0, traj_k), //parX
+                            cur_log_prob_off + normal_lpdf(baseCornerQuanities[,2,c,m]| 0, off_traj_sd));
 
-      target += log_sum_exp(log_prob_on[c,m] + normal_lpdf(baseCornerQuanities[,4,c,m]| 0, traj_k), //parXY
-                            log_prob_off[c,m] + normal_lpdf(baseCornerQuanities[,4,c,m]| 0, off_traj_sd));
+      target += log_sum_exp(cur_log_prob_on + normal_lpdf(baseCornerQuanities[,3,c,m]| 0, traj_k), //parY
+                            cur_log_prob_off + normal_lpdf(baseCornerQuanities[,3,c,m]| 0, off_traj_sd));
+
+      target += log_sum_exp(cur_log_prob_on + normal_lpdf(baseCornerQuanities[,4,c,m]| 0, traj_k), //parXY
+                            cur_log_prob_off + normal_lpdf(baseCornerQuanities[,4,c,m]| 0, off_traj_sd));
 
     }
 
