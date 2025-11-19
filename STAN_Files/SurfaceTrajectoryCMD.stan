@@ -176,7 +176,7 @@ functions {
     return dot_product(coefs, polyTerms);
   }
 
-  real evaluateSampledSurfaceValue(matrix Boundaries, data int comp_res, real[,] coefs, data vector curPos) {
+  real evaluateSampledSurfaceValue(matrix Boundaries, data int comp_res, array[,] real coefs, data vector curPos) {
 
     int cur_col_index = to_int(comp_res * curPos[1] + 1);
     int cur_row_index = to_int(comp_res * curPos[2] + 1);
@@ -259,7 +259,7 @@ functions {
     // Loop through every cell
     for (i in 1:n_cells) {
       // --- A. Declarations for this loop ---
-      int cur_corner_indices[4];
+      array[4] int cur_corner_indices;
       vector[4] cur_border;
       vector[4] cur_CornerValues;
       vector[4] cur_CornerParXs;
@@ -271,7 +271,7 @@ functions {
 
       // 1. Calculate the FINAL (row, col) of this cell
       //    (Assumes row-major order)
-      int final_cell_row = (i - 1) / grid_length + 1;
+      int final_cell_row = (i - 1) %/% grid_length + 1;
       int final_cell_col = (i - 1) % grid_length + 1;
 
       // 2. This (row, col) is the (y, x) index of the cell's
@@ -310,7 +310,7 @@ functions {
 
   matrix updateCornerQuantities(data int comp_res,
                                 real trans_prop,
-                                real[,,,] baseGridCornerQuantities, // [Corner, Qty, Cell, Model]
+                                array[,,,] real baseGridCornerQuantities, // [Corner, Qty, Cell, Model]
                                 matrix baseGridBoundaries,
                                 int model_num) {
 
@@ -343,14 +343,14 @@ functions {
 
       // BUG FIX 2: Explicitly create R-style `vec + scalar` arrays
       int col_offset = 3 * ((i - 1) % comp_res);
-      int row_offset = 3 * ((i - 1) / comp_res); // Stan does integer division
+      int row_offset = 3 * ((i - 1) %/% comp_res); // Stan does integer division
 
-      int cur_col_indices[3] = {1 + col_offset, 2 + col_offset, 3 + col_offset};
-      int cur_row_indices[3] = {1 + row_offset, 2 + row_offset, 3 + row_offset};
+      array[3] int cur_col_indices = {1 + col_offset, 2 + col_offset, 3 + col_offset};
+      array[3] int cur_row_indices = {1 + row_offset, 2 + row_offset, 3 + row_offset};
 
       // BUG FIX 3: Index arrays must be `int[]`, not `vector`.
       // And must be built explicitly, not with R's `vec + scalar` magic.
-      int cur_grid_indices[9];
+      array[9] int cur_grid_indices;
       cur_grid_indices[1] = (cur_row_indices[1] - 1) * fine_grid_width + cur_col_indices[1];
       cur_grid_indices[2] = (cur_row_indices[1] - 1) * fine_grid_width + cur_col_indices[2];
       cur_grid_indices[3] = (cur_row_indices[1] - 1) * fine_grid_width + cur_col_indices[3];
@@ -396,13 +396,13 @@ functions {
 
       // BUG FIX 2 (again): Explicit array creation
       int col_offset_pts = 3 * ((i - 1) % comp_res);
-      int row_offset_pts = 3 * ((i - 1) / comp_res);
+      int row_offset_pts = 3 * ((i - 1) %/% comp_res);
 
-      int cur_col_indices_pts[4] = {1 + col_offset_pts, 2 + col_offset_pts, 3 + col_offset_pts, 4 + col_offset_pts};
-      int cur_row_indices_pts[4] = {1 + row_offset_pts, 2 + row_offset_pts, 3 + row_offset_pts, 4 + row_offset_pts};
+      array[4] int cur_col_indices_pts = {1 + col_offset_pts, 2 + col_offset_pts, 3 + col_offset_pts, 4 + col_offset_pts};
+      array[4] int cur_row_indices_pts = {1 + row_offset_pts, 2 + row_offset_pts, 3 + row_offset_pts, 4 + row_offset_pts};
 
       // BUG FIX 3 (again): Must be int[]
-      int cur_pts_indices[16];
+      array[16] int cur_pts_indices;
       cur_pts_indices[1]  = (cur_row_indices_pts[1] - 1) * fine_point_width + cur_col_indices_pts[1];
       cur_pts_indices[2]  = (cur_row_indices_pts[1] - 1) * fine_point_width + cur_col_indices_pts[2];
       cur_pts_indices[3]  = (cur_row_indices_pts[1] - 1) * fine_point_width + cur_col_indices_pts[3];
@@ -465,7 +465,7 @@ functions {
   }
 
 
-  vector getCompSpacePos(data matrix GMM_means, data real[,,] GMM_cov, data vector GMM_weights, data vector curPos_Phy,
+  vector getCompSpacePos(data matrix GMM_means, array[,,] real GMM_cov, data vector GMM_weights, data vector curPos_Phy,
                          data vector GMM_sd_x, data vector GMM_sd_y_cond, data vector GMM_cond_slope){
     int n_mixtures = rows(GMM_means);
     real x_phy = curPos_Phy[1];
@@ -475,7 +475,7 @@ functions {
     vector[n_mixtures] cond_log_weights_uw;
 
     for(i in 1:n_mixtures){
-      x_cdf += normal_cdf(x_phy, GMM_means[i,1], GMM_sd_x[i])*GMM_weights[i];
+      x_cdf += normal_cdf(x_phy | GMM_means[i,1], GMM_sd_x[i])*GMM_weights[i];
       cond_log_weights_uw[i] = normal_lpdf(x_phy | GMM_means[i,1], GMM_sd_x[i]) + log(GMM_weights[i]);
     }
 
@@ -488,7 +488,7 @@ functions {
       real cur_cond_mean = GMM_means[i,2] + GMM_cond_slope[i]*(x_phy - GMM_means[i,1]);
       real cur_cond_sd = GMM_sd_y_cond[i];
 
-      y_given_x_cdf += normal_cdf(y_phy, cur_cond_mean, cur_cond_sd)*cond_weights[i];
+      y_given_x_cdf += normal_cdf(y_phy | cur_cond_mean, cur_cond_sd)*cond_weights[i];
     }
 
     return [x_cdf, y_given_x_cdf]';
@@ -564,7 +564,7 @@ functions {
   }
 
   vector TrajWeightedBaseVectorFields(data real t, data vector phySpacePos, data vector compSpacePos,
-                                      matrix Boundaries, data int trans_res, real[,,] coefs, data int N_models){
+                                      matrix Boundaries, data int trans_res, array[,,] real coefs, data int N_models){
 
 
     vector[N_models] TrajValues;
@@ -592,7 +592,7 @@ data {
   matrix[N_data,5] Data;         // Particle Velocities with Positions for now (t, x, y, v_x, v_y)
   int<lower=1> GMM_num; // Number of Gaussian Mixtures in the Transformation
   matrix[GMM_num,2] GMM_means; // Means of all Gaussian Mixtures;
-  real GMM_cov[2,2,GMM_num]; // Covariance matrices of all Mixtures
+  array[2,2,GMM_num] real GMM_cov; // Covariance matrices of all Mixtures
   simplex[GMM_num] GMM_weights; // Weights for Mixtures
   real trans_prop;
   real logit_temp;
@@ -663,30 +663,38 @@ parameters {
   //real<lower=0> logit_temp;    // Temperature for the boltzmann distribution on the model logits
   //real<lower=0,upper=1> trans_prop; // Proportion of base cell to act as transition
   matrix<lower=0,upper=1>[comp_res*comp_res, N_models] modelProbs; // The logit (equivelantly probability) of each model being on in each base region
-  real baseCornerQuanities[4,4,comp_res*comp_res,N_models]; // Corner quanities for the base grid
+  array[4,4,comp_res*comp_res,N_models] real baseCornerQuanities; // Corner quanities for the base grid
   real<lower=0> sigma_vel; // Velocity Sigma
 }
 
 transformed parameters {
 
-  real UpdatedCornerQuantities[trans_corner_res2, 4, N_models];
+  array[trans_corner_res2, 4, N_models] real UpdatedCornerQuantities;
 
-  for(i in 1:N_models){
+  profile("UpdateCornerQuantities"){
 
-    UpdatedCornerQuantities[1:trans_corner_res2, 1:4, i] = to_array_2d(updateCornerQuantities(comp_res, trans_prop, baseCornerQuanities, baseBoundaries, i));
+    for(i in 1:N_models){
 
+      UpdatedCornerQuantities[1:trans_corner_res2, 1:4, i] = to_array_2d(updateCornerQuantities(comp_res, trans_prop, baseCornerQuanities, baseBoundaries, i));
+
+    }
   }
 
-  real cur_Coefs[trans_res2, 16, N_models];
+  array[trans_res2, 16, N_models] real cur_Coefs;
 
-  for(i in 1:N_models){
+  profile("getCoefs"){
 
-    cur_Coefs[1:trans_res2, 1:16, i] = to_array_2d(calculateSurface_KnownCorners(cur_transBoundaries,
-                                                                    to_vector(UpdatedCornerQuantities[,1,i]),
-                                                                    to_vector(UpdatedCornerQuantities[,2,i]),
-                                                                    to_vector(UpdatedCornerQuantities[,3,i]),
-                                                                    to_vector(UpdatedCornerQuantities[,4,i])));
+    for(i in 1:N_models){
+
+      cur_Coefs[1:trans_res2, 1:16, i] = to_array_2d(calculateSurface_KnownCorners(cur_transBoundaries,
+                                                                      to_vector(UpdatedCornerQuantities[,1,i]),
+                                                                      to_vector(UpdatedCornerQuantities[,2,i]),
+                                                                      to_vector(UpdatedCornerQuantities[,3,i]),
+                                                                      to_vector(UpdatedCornerQuantities[,4,i])));
+    }
   }
+
+
 
   // matrix[comp_res2, N_models] log_prob_on;
   // matrix[comp_res2, N_models] log_prob_off;
@@ -706,41 +714,51 @@ model {
   //trans_prop ~ beta(trans_prop_alpha, trans_prop_beta); //uniform
   sigma_vel ~ inv_gamma(sigma_vel_alpha, sigma_vel_beta); //approx jeffrey's
 
-  target += modelLogits_lpdf(modelProbs | baseBoundaries, logit_temp, selfPenalty, N_models);
+  profile("modelProbsPrior"){
+    target += modelLogits_lpdf(modelProbs | baseBoundaries, logit_temp, selfPenalty, N_models);
+  }
 
-  for(m in 1:N_models){
+  profile("CornerQuantsPrior"){
+    for(m in 1:N_models){
 
-    for(c in 1:comp_res2){
+      for(c in 1:comp_res2){
 
-      real cur_log_prob_on = log(modelProbs[c,m]);
-      real cur_log_prob_off = log(1 - modelProbs[c,m]);
+        real cur_log_prob_on = log(modelProbs[c,m]);
+        real cur_log_prob_off = log(1 - modelProbs[c,m]);
 
-      target += log_sum_exp(cur_log_prob_on + normal_lpdf(baseCornerQuanities[,1,c,m]| prior_traj_mean, traj_k), // values
-                            cur_log_prob_off + normal_lpdf(baseCornerQuanities[,1,c,m]| 0, off_traj_sd));
+        target += log_sum_exp(cur_log_prob_on + normal_lpdf(baseCornerQuanities[,1,c,m]| prior_traj_mean, traj_k), // values
+                              cur_log_prob_off + normal_lpdf(baseCornerQuanities[,1,c,m]| 0, off_traj_sd));
 
-      target += log_sum_exp(cur_log_prob_on + normal_lpdf(baseCornerQuanities[,2,c,m]| 0, traj_k), //parX
-                            cur_log_prob_off + normal_lpdf(baseCornerQuanities[,2,c,m]| 0, off_traj_sd));
+        target += log_sum_exp(cur_log_prob_on + normal_lpdf(baseCornerQuanities[,2,c,m]| 0, traj_k), //parX
+                              cur_log_prob_off + normal_lpdf(baseCornerQuanities[,2,c,m]| 0, off_traj_sd));
 
-      target += log_sum_exp(cur_log_prob_on + normal_lpdf(baseCornerQuanities[,3,c,m]| 0, traj_k), //parY
-                            cur_log_prob_off + normal_lpdf(baseCornerQuanities[,3,c,m]| 0, off_traj_sd));
+        target += log_sum_exp(cur_log_prob_on + normal_lpdf(baseCornerQuanities[,3,c,m]| 0, traj_k), //parY
+                              cur_log_prob_off + normal_lpdf(baseCornerQuanities[,3,c,m]| 0, off_traj_sd));
 
-      target += log_sum_exp(cur_log_prob_on + normal_lpdf(baseCornerQuanities[,4,c,m]| 0, traj_k), //parXY
-                            cur_log_prob_off + normal_lpdf(baseCornerQuanities[,4,c,m]| 0, off_traj_sd));
+        target += log_sum_exp(cur_log_prob_on + normal_lpdf(baseCornerQuanities[,4,c,m]| 0, traj_k), //parXY
+                              cur_log_prob_off + normal_lpdf(baseCornerQuanities[,4,c,m]| 0, off_traj_sd));
+
+      }
 
     }
-
   }
+
+
 
   // Likelihood
 
-  for(i in 1:N_data){
+  profile("Likelihood"){
+    for(i in 1:N_data){
 
-    vector[2] cur_TrajWeightedVel = TrajWeightedBaseVectorFields(Data[i,1], Data[i,2:3]', compSpacePos_data[i, 1:2]',
-                                                       cur_transBoundaries, trans_res, cur_Coefs, N_models);
+      vector[2] cur_TrajWeightedVel = TrajWeightedBaseVectorFields(Data[i,1], Data[i,2:3]', compSpacePos_data[i, 1:2]',
+                                                         cur_transBoundaries, trans_res, cur_Coefs, N_models);
 
-    target += normal_lpdf(Data[i,4:5]| cur_TrajWeightedVel, sigma_vel);
+      target += normal_lpdf(Data[i,4:5]| cur_TrajWeightedVel, sigma_vel);
 
+    }
   }
+
+
 
 }
 

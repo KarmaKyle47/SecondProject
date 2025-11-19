@@ -30,6 +30,12 @@ ggplot(testCompData, aes(x = X, y = Y, color = Particle)) + geom_point() + theme
 library(rstan)
 options(mc.cores = parallel::detectCores())
 
+remotes::install_github("stan-dev/cmdstanr", force = T)
+
+library(cmdstanr)
+
+install_cmdstan()
+
 # This compiles the functions and loads them into your R session
 expose_stan_functions("STAN_Files/SurfaceTrajectoryOnlyFunctions.stan")
 
@@ -133,7 +139,7 @@ updatedTree = list(boundaries = data.frame(L1 = updatedNewBoundaries[,1],
 plotFullTree(newTree)
 plotUpdatedTree = plotFullTree(updatedTree)
 
-plotUpdatedTree$ModelSurfaces[[2]]
+plotUpdatedTree$ModelSurfaces[[3]]
 
 
 
@@ -187,7 +193,8 @@ tree = generate_grid_tree(0.5,c(0,0,1,1))
 sampledTree = sampleFullCubicSurface_AllModels_New(border_length = 1, cells_per_dim = 2, num_models = 3, k = 0.5, logit_sd = 5, trans_prop = 8/9, prior_mean = 1)
 
 sampledTreePlot = plotFullTreeNew(sampledTree, surface_grid_size = 0.01)
-sampledTreePlot$ModelSurfaces[[3]]
+sampledTreePlot$ModelSurfaces[[1]]
+1/(1+exp(-1*sampledTree$logits[2,1]))
 
 sampled_ModelProbs = sample_new_models_one_pass(tree, 3, logit_sd = 5)
 sample_Coefs = sample_NewPatches(sampled_ModelProbs, k = 0.5, prior_mean = 1)
@@ -206,11 +213,11 @@ GMM_means = matrix(c(0,0,1,1), nrow = 2, byrow = T)
 GMM_cov = array(c(0.1,0,0,0.1,0.1,0,0,0.1), dim = c(2,2,2))
 GMM_weights = c(0.5,0.5)
 
-Data_t = rep(0,1000)
-Data_pos = matrix(nrow = 1000, ncol = 2)
-Data_vel = matrix(nrow = 1000, ncol = 2)
+Data_t = rep(0,1)
+Data_pos = matrix(nrow = 1, ncol = 2)
+Data_vel = matrix(nrow = 1, ncol = 2)
 
-for(i in 1:1000){
+for(i in 1:1){
 
   which_normal = sample(c(1,2), 1, prob = GMM_weights)
   Data_pos[i,] = mvrnorm(mu = GMM_means[which_normal,], Sigma = GMM_cov[,,which_normal])
@@ -222,10 +229,10 @@ for(i in 1:1000){
 plot(Data_pos)
 plot(Data_vel)
 
-Stan_Data = matrix(c(Data_t, Data_pos, Data_vel), nrow = 1000, ncol = 5, byrow = F)
+Stan_Data = matrix(c(Data_t, Data_pos, Data_vel), nrow = 1, ncol = 5, byrow = F)
 
 stan_data = list(
-  N_data = 1000,                 # Number of data points
+  N_data = 1,                 # Number of data points
   comp_res = 2,                 # Computational Grid Resolution
   Data = Stan_Data,                 # Particle Velocities with Positions for now (t, x, y, v_x, v_y)
   GMM_num = 2,              # Number of Gaussian Mixtures in the Transformation
@@ -241,7 +248,15 @@ stan_data = list(
 mod <- rstan::stan_model("STAN_Files/SurfaceTrajectoryOnlyFunctions.stan")
 mod <- rstan::stan_model("STAN_Files/test_functions.stan")
 mod <- rstan::stan_model("STAN_Files/SurfaceTrajectory.stan")
+mod <- cmdstan_model("STAN_Files/SurfaceTrajectoryCMD.stan")
 
+
+fit <- mod$sample(
+  data = stan_data,
+  chains = 4,
+  parallel_chains = 4,
+  refresh = 500 # print update every 500 iters
+)
 
 # --- 4. Run the Model to Test the Function ---
 # This part is very fast
@@ -258,7 +273,7 @@ fit <- rstan::sampling(
   object = mod,
   data = stan_data,
   algorithm = "NUTS",
-  chains = 4,
+  chains = 8,
   warmup = 1000,
   iter = 5000
 )
@@ -270,10 +285,16 @@ fit_extract <- rstan::extract(fit)
 rstan::extract()
 print(fit_extract)
 Rhat(fit)
-plot(fit_extract$traj_k[10001:20000], type = 'l')
-plot(fit_extract$modelProbs[,2,1], type = 'l')
+plot(fit_extract$modelProbs[,1,], type = 'l')
+plot(fit_extract$modelProbs[,4,3], type = 'l')
 hist(fit_extract$modelProbs[,4,2])
 hist(fit_extract$sigma_vel)
+hist(fit_extract$UpdatedCornerQuantities[,4,1,1])
+median(fit_extract$UpdatedCornerQuantities[,1,1,1])
+
+sampledTreePlot$ModelRegions[[1]]
+
+save(fit_extract, stan_data, sampledTree, sampledTreePlot, file = "FirstTestSTAN.RData")
 
 plot(fit_extract$modelLogits[,4,2])
 plot(fit_extract$baseCornerQuanities[,1,1,1,2])
