@@ -50,7 +50,7 @@ get_hsgp_plots <- function(n_grid = 100) {
   # 2. Logit Surface (The Switch)
   # Low length_scale (0.15) = Sharp features / Fronts
   sim_logit <- generate_hsgp_surface(n_grid, length_scale = 0.10, magnitude = 3.0, M = 50)
-  mat_logit <- sim_logit$z - 2.0 # Centered at -2.0 (Default Off)
+  mat_logit <- sim_logit$z + log(2) # Centered at -2.0 (Default Off)
 
   # 3. Calculate Weight and Final
   mat_weight <- 1 / (1 + exp(-mat_logit)) # Sigmoid
