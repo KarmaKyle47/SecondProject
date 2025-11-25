@@ -22,15 +22,11 @@ functions {
     return (phi_x' * to_matrix(beta) * phi_y) + prior_mean;
   }
 
-  vector evaluate_surface_vectorized(matrix Phi_x, matrix Phi_y, matrix beta, real prior_mean) {
-    // 1. Project Phi_x through the coefficients
-    // (N_data x M) * (M x M) -> (N_data x M)
+vector evaluate_surface_vectorized(matrix Phi_x, matrix Phi_y, matrix beta) {
+    // PURE BASIS EXPANSION. No shifts.
     matrix[rows(Phi_x), cols(Phi_x)] H = Phi_x * beta;
-
-    // 2. Dot product with Phi_y row-by-row
-    // Result is vector of length N_data
-    return rows_dot_product(H, Phi_y) + prior_mean;
-  }
+    return rows_dot_product(H, Phi_y);
+}
 
   vector getCompSpacePos(data matrix GMM_means, array[,,] real GMM_cov, data vector GMM_weights, data vector curPos_Phy,
                          data vector GMM_sd_x, data vector GMM_sd_y_cond, data vector GMM_cond_slope){
@@ -66,7 +62,7 @@ functions {
 
     matrix[2,2] VF;
 
-    real inv_norm = inv_sqrt(curPos[1] * curPos[1] + curPos[2] * curPos[2]);
+    real inv_norm = inv_sqrt(curPos[1] * curPos[1] + curPos[2] * curPos[2] + 1e-6);
 
     VF[1,1] = curPos[2]*inv_norm;
     VF[2,1] = -1*curPos[1]*inv_norm;
@@ -80,14 +76,14 @@ functions {
   }
 
   vector TrajWeightedBaseVectorFields(data real t, data vector phySpacePos, data vector compSpacePos,
-                                      int M, array[,,] real coef_betas, array[,,] real logit_betas, vector coef_prior_means, real logit_prior_mean, vector omega, int N_models){
+                                      int M, array[,,] real coef_betas, array[,,] real logit_betas, real coef_prior_mean, real logit_prior_mean, vector omega, int N_models){
 
 
     vector[N_models] CoefValues;
 
     for(i in 1:N_models){
 
-      CoefValues[i] = evaluate_HSGP(compSpacePos, M, coef_betas[,,i], coef_prior_means[i], omega);
+      CoefValues[i] = evaluate_HSGP(compSpacePos, M, coef_betas[,,i], coef_prior_mean, omega);
 
     }
 
@@ -133,10 +129,12 @@ transformed data {
   real logit_prior_mean;
 
   if(N_models == 2){
-    logit_prior_mean = 0;
+    logit_prior_mean = 100;
   } else{
     logit_prior_mean = log(2.0/(M-2));
   }
+
+  real coef_prior_mean = 1.0;
 
   real coef_k_alpha = 9;
   real coef_k_beta = 2;
@@ -186,23 +184,32 @@ transformed data {
      Phi_y_data[, m] = sqrt(2) * cos(omega[m] * compSpacePos_data[, 2]);
   }
 
-  array[N_data] matrix[2, 2] Base_Vels;
+  matrix[N_data, N_models] Base_Vx;
+  matrix[N_data, N_models] Base_Vy;
 
   for(i in 1:N_data) {
-     Base_Vels[i] = baseVectorFields(Data[i,1], Data[i, 2:3]');
+     // Run your physics math ONCE
+     matrix[2, 2] vf = baseVectorFields(Data[i,1], Data[i, 2:3]');
+
+     // Store X-velocities
+     Base_Vx[i, 1] = vf[1, 1]; // Model 1 X
+     Base_Vx[i, 2] = vf[1, 2]; // Model 2 X
+
+     // Store Y-velocities
+     Base_Vy[i, 1] = vf[2, 1]; // Model 1 Y
+     Base_Vy[i, 2] = vf[2, 2]; // Model 2 Y
   }
 
 }
 
 parameters {
-  vector<lower=0>[N_models] coef_ks;      // SD of the coefficient surfaces
-  vector<lower=0>[N_models] logit_ks; // SD of the logit surfaces
-  vector<lower=0>[N_models] coef_ls;   // Length Scales for the coefficient surfaces
-  vector<lower=0>[N_models] logit_ls;  // Length Scales for the logit surfaces
-  vector[N_models] coef_prior_means;   // Prior mean of the coefficient surfaces
+  vector<lower=1e-6>[N_models] coef_ks;      // SD of the coefficient surfaces
+  vector<lower=1e-6>[N_models] logit_ks; // SD of the logit surfaces
+  vector<lower=0.05>[N_models] coef_ls;   // Length Scales for the coefficient surfaces
+  vector<lower=0.05>[N_models] logit_ls;  // Length Scales for the logit surfaces
   array[N_models] matrix[M+1, M+1] coef_zs; // zs for the coefficient surfaces
   array[N_models] matrix[M+1, M+1] logit_zs; // zs for the logit surfaces
-  real<lower=0> sigma_vel; // Velocity Sigma
+  real<lower=1e-6> sigma_vel; // Velocity Sigma
 }
 
 transformed parameters {
@@ -210,69 +217,75 @@ transformed parameters {
   array[N_models] matrix[M+1, M+1] coef_betas;
   array[N_models] matrix[M+1, M+1] logit_betas;
 
-  // OPTIMIZATION: No diag_matrix()
-  // Use diag_pre/post_multiply for speed
-  for(i in 1:N_models){
-    // 1. Calculate Spectral Density
-    vector[M+1] sqrt_spd_coef = coef_ks[i] * sqrt(sqrt(2*pi()) * coef_ls[i] * exp(-0.5 * square(coef_ls[i] * omega)));
-    vector[M+1] sqrt_spd_logit = logit_ks[i] * sqrt(sqrt(2*pi()) * logit_ls[i] * exp(-0.5 * square(logit_ls[i] * omega)));
+  profile("Spectral Scaling"){
+    for(i in 1:N_models){
+      // Standard HSGP Scaling
+      vector[M+1] sqrt_spd_coef = coef_ks[i] * sqrt(sqrt(2*pi()) * coef_ls[i] * exp(-0.5 * square(coef_ls[i] * omega)));
+      vector[M+1] sqrt_spd_logit = logit_ks[i] * sqrt(sqrt(2*pi()) * logit_ls[i] * exp(-0.5 * square(logit_ls[i] * omega)));
 
-    // 2. Scale Z -> Beta
-    coef_betas[i] = diag_post_multiply(diag_pre_multiply(sqrt_spd_coef, coef_zs[i]), sqrt_spd_coef);
-    logit_betas[i] = diag_post_multiply(diag_pre_multiply(sqrt_spd_logit, logit_zs[i]), sqrt_spd_logit);
+      coef_betas[i] = diag_post_multiply(diag_pre_multiply(sqrt_spd_coef, coef_zs[i]), sqrt_spd_coef);
+      logit_betas[i] = diag_post_multiply(diag_pre_multiply(sqrt_spd_logit, logit_zs[i]), sqrt_spd_logit);
+    }
   }
+
+
+
+
 
 }
 
 model {
   // Priors
-  coef_ks ~ inv_gamma(coef_k_alpha, coef_k_beta); // most of prob between 0.01 and 0.5
-  logit_ks ~ inv_gamma(logit_k_alpha, logit_k_beta); //approx jeffrey's
-  coef_ls ~ inv_gamma(coef_l_alpha, coef_l_beta);  //approx jeffrey's
-  logit_ls ~ inv_gamma(logit_l_alpha, logit_l_beta);  //approx jeffrey's
 
-  coef_prior_means ~ normal(1, 0.5); //centered at 0
+  profile("Priors"){
+    coef_ks ~ inv_gamma(coef_k_alpha, coef_k_beta); // most of prob between 0.01 and 0.5
+    logit_ks ~ inv_gamma(logit_k_alpha, logit_k_beta); //approx jeffrey's
+    coef_ls ~ inv_gamma(coef_l_alpha, coef_l_beta);  //approx jeffrey's
+    logit_ls ~ inv_gamma(logit_l_alpha, logit_l_beta);  //approx jeffrey's
 
-  sigma_vel ~ inv_gamma(sigma_vel_alpha, sigma_vel_beta); //approx jeffrey's
+    sigma_vel ~ inv_gamma(sigma_vel_alpha, sigma_vel_beta); //approx jeffrey's
 
-  for(k in 1:N_models){
-     to_vector(coef_zs[k]) ~ std_normal();
-     to_vector(logit_zs[k]) ~ std_normal();
+    for(k in 1:N_models){
+       // Pure Standard Normal.
+       // No shifting. No scaling. No dynamic dependencies.
+       to_vector(coef_zs[k]) ~ std_normal();
+       to_vector(logit_zs[k]) ~ std_normal();
+    }
+
   }
 
-  //Likelihood
 
+  // --- 2. Likelihood ---
   vector[N_data] mu_vx = rep_vector(0, N_data);
   vector[N_data] mu_vy = rep_vector(0, N_data);
 
-  // 1. Calculate contributions from each model
-  for (k in 1:N_models) {
+  profile("Surface Evaluation"){
+    for (k in 1:N_models) {
+      // A. Calculate Deviation Surfaces (Centered at 0)
+      vector[N_data] logit_dev = evaluate_surface_vectorized(Phi_x_data, Phi_y_data, logit_betas[k]);
+      vector[N_data] c_dev     = evaluate_surface_vectorized(Phi_x_data, Phi_y_data, coef_betas[k]);
 
-      // A. Get Weight Vector (for all data points at once)
-      vector[N_data] logits = evaluate_surface_vectorized(Phi_x_data, Phi_y_data, logit_betas[k], logit_prior_mean);
-      vector[N_data] w = inv_logit(logits);
+      // B. Apply Explicit Shifts (The "Residual" Logic)
+      // Logit = Base + Deviation
+      vector[N_data] w = inv_logit(logit_prior_mean + logit_dev);
 
-      // B. Get Coefficient Vector (for all data points at once)
-      vector[N_data] c = evaluate_surface_vectorized(Phi_x_data, Phi_y_data, coef_betas[k], coef_prior_means[k]);
+      // Coeff = Base + Deviation
+      // If c_dev is 0 (prior mean), Coeff is 1.0.
+      vector[N_data] c = coef_prior_mean + c_dev;
 
-      // C. Accumulate Physics
-      // We loop over data here only for the final summation, which is cheap
-      // (The expensive surface evaluation is already done)
-      for (i in 1:N_data) {
-         // w[i] * c[i] * Base_Vel[i]
-         // Base_Vels[i] is 2x2. Column k is the vector for model k.
-         vector[2] v_k = Base_Vels[i][, k];
-
-         real scalar_mult = w[i] * c[i];
-
-         mu_vx[i] += scalar_mult * v_k[1];
-         mu_vy[i] += scalar_mult * v_k[2];
-      }
+      // C. Accumulate
+      vector[N_data] effective_scale = w .* c;
+      mu_vx += effective_scale .* col(Base_Vx, k);
+      mu_vy += effective_scale .* col(Base_Vy, k);
+    }
   }
 
-  // 2. Evaluate Normal (Vectorized)
-  Data[, 4] ~ normal(mu_vx, sigma_vel);
-  Data[, 5] ~ normal(mu_vy, sigma_vel);
+  profile("Likelihood"){
+    Data[, 4] ~ normal(mu_vx, sigma_vel);
+    Data[, 5] ~ normal(mu_vy, sigma_vel);
+  }
+
+
 
 }
 

@@ -61,28 +61,27 @@ sampled_GMM = list(Mean = GMM_means,
                    Cov = asplit(GMM_cov, MARGIN = 3),
                    Weights = GMM_weights)
 
-Data_t = rep(0,100)
-Data_pos = matrix(nrow = 100, ncol = 2)
-Data_vel = matrix(nrow = 100, ncol = 2)
+Data_t = rep(0,1000)
+Data_pos = matrix(nrow = 1000, ncol = 2)
+Data_vel = matrix(nrow = 1000, ncol = 2)
 
-for(i in 1:100){
+for(i in 1:1000){
 
   which_normal = sample(c(1,2), 1, prob = GMM_weights)
   Data_pos[i,] = mvrnorm(mu = GMM_means[which_normal,], Sigma = GMM_cov[,,which_normal])
 
-  Data_vel[i,] = rowSums(baseVectorFields(0,Data_pos[i,])) + rnorm(2,0,0.01)
+  Data_vel[i,] = rowSums(baseVectorFields(0,Data_pos[i,])) + rnorm(2,0,0.1)
 
 }
-
 
 
 plot(Data_pos)
 plot(Data_vel)
 
-Stan_Data = matrix(c(Data_t, Data_pos, Data_vel), nrow = 100, ncol = 5, byrow = F)
+Stan_Data = matrix(c(Data_t, Data_pos, Data_vel), nrow = 1000, ncol = 5, byrow = F)
 
 stan_data = list(
-  N_data = 100,                 # Number of data points
+  N_data = 1000,                 # Number of data points
   Data = Stan_Data,                 # Particle Velocities with Positions for now (t, x, y, v_x, v_y)
   GMM_num = 2,              # Number of Gaussian Mixtures in the Transformation
   GMM_means = GMM_means,     # Means of all Gaussian Mixtures;
@@ -91,23 +90,106 @@ stan_data = list(
   M = 10 #Number of eigenfunctions
 )
 
+init_fun <- function() {
+  list(
+    # Start Magnitudes small (Assume physics is correct, no scaling needed yet)
+    coef_ks = rep(0.1, N_models),
+    logit_ks = rep(0.5, N_models),
+
+    # Start Length Scales at a "safe" middle ground (not 0.05, not 100)
+    coef_ls = rep(0.2, N_models),
+    logit_ls = rep(0.15, N_models),
+
+    # Start Surfaces FLAT (Crucial!)
+    coef_zs = array(0, dim = c(N_models, M+1, M+1)),
+    logit_zs = array(0, dim = c(N_models, M+1, M+1)),
+
+    # Start noise reasonable
+    sigma_vel = 0.5
+  )
+}
+
+cat("--- STARTING GPU BENCHMARK ---\n")
+t_start <- Sys.time()
+fit_gpu <- mod$sample(
+  data = stan_data,
+  chains = 1,
+  iter_warmup = 10,
+  iter_sampling = 0,
+  init = init_fun, # Use your init function
+  refresh = 1
+)
+t_end <- Sys.time()
+print(t_end - t_start)
+
 # --- 3. Compile the Stan Model ---
 # This will take a minute, but it uses the REAL compiler
 mod <- rstan::stan_model("STAN_Files/SurfaceTrajectoryOnlyFunctions.stan")
 mod <- rstan::stan_model("STAN_Files/test_functions.stan")
 mod <- rstan::stan_model("STAN_Files/SurfaceTrajectory.stan")
-mod <- cmdstan_model("STAN_Files/SurfaceTrajectoryHSGP.stan")
+
+cuda_path <- "C:/Program Files/NVIDIA GPU Computing Toolkit/CUDA/v13.0"
+
+opencl_flags <- list(
+  stan_opencl = TRUE,
+  opencl_platform = 1,
+  opencl_device = 0,
+  LDFLAGS = paste0("-L\"", cuda_path, "/lib/x64\" -lOpenCL"),
+  CXXFLAGS = paste0("-I\"", cuda_path, "/include\"")
+)
+
+opencl_flags <- list(
+  stan_opencl = TRUE,
+  opencl_platform = 1,
+  opencl_device = 0
+)
+
+mod <- cmdstan_model(
+  "STAN_Files/SurfaceTrajectoryHSGP.stan",
+  cpp_options = opencl_flags,
+  force_recompile = TRUE
+)
+
+mod <- cmdstan_model(
+  "STAN_Files/SurfaceTrajectoryHSGP.stan",
+  force_recompile = TRUE
+)
+
+
+mod <- cmdstan_model("STAN_Files/SurfaceTrajectoryHSGP.stan",
+                     force_recompile = TRUE)
+
+fit <- mod$sample(data = stan_data, chains = 1, iter_warmup = 10, iter_sampling = 10)
+
+fit <- mod$sample(
+  data = stan_data,
+  chains = 4,
+  parallel_chains = 4,
+  iter_warmup = 500,
+  iter_sampling = 5000
+)
 
 
 
+M <- 10
+N_models <- 2
 
 
 fit <- mod$sample(
   data = stan_data,
   chains = 4,
   parallel_chains = 4,
-  refresh = 10 # print update every 500 iters
+  refresh = 10, # print update every 500 iters
+  init = init_fun
 )
+
+fit$profiles()
+fit$cmdstan_diagnose()
+
+fit$summary()
+
+library(bayesplot)
+mcmc_trace(fit$draws(c("coef_ls", "coef_ks")))
 
 # --- 4. Run the Model to Test the Function ---
 # This part is very fast
@@ -174,3 +256,84 @@ TrajWeightedBaseVectorFields(0, c(-3.2,1.4), baseVectorFields, compPatchTree = u
 
 plotTransitionRegions(baseTreeSampled)
 newBoundaries
+
+median(fit$draws("coef_ls")[,,2])
+system("clinfo")
+
+# Generate synthetic data for scaling test
+run_benchmark <- function(N_test) {
+
+  cat(paste0("\n--- TESTING N = ", N_test, " ---\n"))
+
+  # Fake data structures
+  bench_data <- list(
+    N_data = N_test,
+    Data = matrix(rnorm(N_test * 5), ncol = 5),
+    GMM_num = 2,
+    GMM_means = matrix(0, 2, 2),
+    GMM_cov = array(diag(2), dim=c(2,2,2)),
+    GMM_weights = c(0.5, 0.5),
+    M = 10 # Keep M constant
+  )
+
+  # Run just 10 iterations to check speed
+  t_start <- Sys.time()
+  fit <- mod$sample(
+    data = bench_data,
+    chains = 1,
+    iter_warmup = 10,
+    iter_sampling = 0,
+    fixed_param = TRUE, # Just measure likelihood eval speed
+    init = init_fun
+  )
+  print(Sys.time() - t_start)
+}
+
+# 1. The "Slow" Zone (Where you are now)
+run_benchmark(1000)
+
+# 2. The Break-Even Zone
+run_benchmark(10000)
+
+# 3. The "GPU Shine" Zone
+run_benchmark(1000000)
+
+
+
+fit <- mod$sample(
+  data = stan_data,
+  init = init_fun,
+  chains = 1,           # Just 1 chain to save time/heat
+  iter_warmup = 200,    # Short warmup
+  iter_sampling = 200,  # Short sampling
+  fixed_param = FALSE,  # <--- TURN THE ENGINE ON
+  refresh = 1
+)
+
+summary_stats <- fit$summary(
+  variables = c("coef_ks", "logit_ks", "coef_ls", "logit_ls", "sigma_vel"),
+  "mean", "sd", "rhat" # What columns you want
+)
+
+print(summary_stats, n = Inf)
+
+
+# 1. Extract all draws for the coefficient Zs
+# format: [iterations, chains, flat_index]
+coef_draws <- fit$draws("coef_zs", format = "draws_matrix")
+
+# 2. Calculate the column means (averaging over all MCMC samples)
+coef_means_flat <- colMeans(coef_draws)
+
+# 3. Reshape back to [M+1, M+1, N_models]
+# Note: Stan flattens Column-Major (like R), so strict reshaping works.
+# Dimensions: (M+1, M+1, N_models)
+z_phys_array <- array(coef_means_flat, dim = c(M+1, M+1, N_models))
+
+# Do the same for Logits
+logit_draws <- fit$draws("logit_zs", format = "draws_matrix")
+logit_means_flat <- colMeans(logit_draws)
+z_logit_array <- array(logit_means_flat, dim = c(M+1, M+1, N_models))
+
+plotHSGP(grid_res = 100, coefs = z_phys_array[,,1], prior_mean = 1, k = summary_stats$mean[1], l = summary_stats$mean[5], M = 10)
+
