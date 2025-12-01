@@ -261,7 +261,7 @@ getGridStanHSGP = function(fit, grid_res, M, n_iters){
 
 
 }
-
+n_iters = 4000
 getGridStanHSGP = function(fit, grid_res, M, n_iters){
 
   # --- 1. Setup Constants ---
@@ -294,26 +294,26 @@ getGridStanHSGP = function(fit, grid_res, M, n_iters){
   # Assuming N_models = 2
 
   # Coefficient (Log) Hypers
-  # log_ks_1 <- as.vector(fit$draws("coef_ks[1]", format = "draws_matrix")[1:n_iters])
-  # log_ls_1 <- as.vector(fit$draws("coef_ls[1]", format = "draws_matrix")[1:n_iters])
-  # log_ks_2 <- as.vector(fit$draws("coef_ks[2]", format = "draws_matrix")[1:n_iters])
-  # log_ls_2 <- as.vector(fit$draws("coef_ls[2]", format = "draws_matrix")[1:n_iters])
+  log_ks_1 <- as.vector(fit$draws("log_ks[1]", format = "draws_matrix")[1:n_iters])
+  log_ls_1 <- as.vector(fit$draws("log_ls[1]", format = "draws_matrix")[1:n_iters])
+  log_ks_2 <- as.vector(fit$draws("log_ks[2]", format = "draws_matrix")[1:n_iters])
+  log_ls_2 <- as.vector(fit$draws("log_ls[2]", format = "draws_matrix")[1:n_iters])
 
-  log_ks_1 <- rep(k_log, n_iters)
-  log_ls_1 <- rep(l_log, n_iters)
-  log_ks_2 <- rep(k_log, n_iters)
-  log_ls_2 <- rep(l_log, n_iters)
+  # log_ks_1 <- rep(k_log, n_iters)
+  # log_ls_1 <- rep(l_log, n_iters)
+  # log_ks_2 <- rep(k_log, n_iters)
+  # log_ls_2 <- rep(l_log, n_iters)
 
   # Weight (Logit) Hypers
-  # logit_ks_1 <- as.vector(fit$draws("logit_ks[1]", format = "draws_matrix")[1:n_iters])
-  # logit_ls_1 <- as.vector(fit$draws("logit_ls[1]", format = "draws_matrix")[1:n_iters])
-  # logit_ks_2 <- as.vector(fit$draws("logit_ks[2]", format = "draws_matrix")[1:n_iters])
-  # logit_ls_2 <- as.vector(fit$draws("logit_ls[2]", format = "draws_matrix")[1:n_iters])
+  logit_ks_1 <- as.vector(fit$draws("logit_ks[1]", format = "draws_matrix")[1:n_iters])
+  logit_ls_1 <- as.vector(fit$draws("logit_ls[1]", format = "draws_matrix")[1:n_iters])
+  logit_ks_2 <- as.vector(fit$draws("logit_ks[2]", format = "draws_matrix")[1:n_iters])
+  logit_ls_2 <- as.vector(fit$draws("logit_ls[2]", format = "draws_matrix")[1:n_iters])
 
-  logit_ks_1 <- rep(k_logit, n_iters)
-  logit_ls_1 <- rep(l_logit, n_iters)
-  logit_ks_2 <- rep(k_logit, n_iters)
-  logit_ls_2 <- rep(l_logit, n_iters)
+  # logit_ks_1 <- rep(k_logit, n_iters)
+  # logit_ls_1 <- rep(l_logit, n_iters)
+  # logit_ks_2 <- rep(k_logit, n_iters)
+  # logit_ls_2 <- rep(l_logit, n_iters)
 
   # --- 4. Extract Raw Z Matrices ---
   # Safer extraction using variable names
@@ -426,11 +426,23 @@ fast_mean_3d <- function(arr_3d) {
   return(means)
 }
 
+testSTANGrid = getGridStanHSGP(fit, 100, M = 10, n_iters = 4000)
+truth_1 = plotHSGP(grid_res = 100, z_log = z_log1, k_log = k_log, l_log = l_log,
+                   z_logit = z_logit1, k_logit = k_logit, l_logit = l_logit, logit_prior_mean = 10, M = 10, color_limits = c(0,2))
+truth_2 = plotHSGP(grid_res = 100, z_log = z_log2, k_log = k_log, l_log = l_log,
+                   z_logit = z_logit2, k_logit = k_logit, l_logit = l_logit, logit_prior_mean = 10, M = 10, color_limits = c(0,2))
+
+
+
 # Usage
-final_mean <- fast_mean_3d(traj_grid_draws_2)
+x_seq = y_seq = seq(0,1,length.out = 101)
+final_mean_traj1 <- fast_mean_3d(testSTANGrid$traj_1)
+final_mean_traj2 <- fast_mean_3d(testSTANGrid$traj_2)
 
-plot_ly(x = x_seq, y = y_seq, z = final_mean, type = "surface", color_scale = "Viridis")
+plot_ly(x = x_seq, y = y_seq, z = final_mean_traj1, type = "surface", color_scale = "Viridis", cmin = 0, cmax = 2)
+truth_1$Trajectory
 
+plot_ly(x = x_seq, y = y_seq, z = final_mean_traj2, type = "surface", color_scale = "Viridis", cmin = 0, cmax = 2)
 truth_2$Trajectory
 
 

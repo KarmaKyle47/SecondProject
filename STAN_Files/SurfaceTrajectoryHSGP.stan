@@ -200,18 +200,18 @@ transformed data {
      Base_Vy[i, 2] = vf[2, 2]; // Model 2 Y
   }
 
-  vector<lower=0>[N_models] log_ks = [0.175, 0.175]';      // SD of the log surfaces
-  vector<lower=0>[N_models] logit_ks = [2.0, 2.0]'; // SD of the logit surfaces
-  vector<lower=0>[N_models] log_ls = [0.2,0.2]';   // Length Scales for the log surfaces
-  vector<lower=0>[N_models] logit_ls = [0.1,0.1]';  // Length Scales for the logit surfaces
+  // vector<lower=0>[N_models] log_ks = [0.175, 0.175]';      // SD of the log surfaces
+  // vector<lower=0>[N_models] logit_ks = [2.0, 2.0]'; // SD of the logit surfaces
+  // vector<lower=0>[N_models] log_ls = [0.2,0.2]';   // Length Scales for the log surfaces
+  // vector<lower=0>[N_models] logit_ls = [0.1,0.1]';  // Length Scales for the logit surfaces
 
 }
 
 parameters {
-  // vector<lower=0>[N_models] log_ks;      // SD of the log surfaces
-  // vector<lower=0>[N_models] logit_ks; // SD of the logit surfaces
-  // vector<lower=0>[N_models] log_ls;   // Length Scales for the log surfaces
-  // vector<lower=0>[N_models] logit_ls;  // Length Scales for the logit surfaces
+  vector<lower=0>[N_models] log_ks;      // SD of the log surfaces
+  vector<lower=0>[N_models] logit_ks; // SD of the logit surfaces
+  vector<lower=0>[N_models] log_ls;   // Length Scales for the log surfaces
+  vector<lower=0>[N_models] logit_ls;  // Length Scales for the logit surfaces
   array[N_models] matrix[M+1, M+1] log_zs; // zs for the log surfaces
   array[N_models] matrix[M+1, M+1] logit_zs; // zs for the logit surfaces
   real<lower=0> sigma_vel; // Velocity Sigma
