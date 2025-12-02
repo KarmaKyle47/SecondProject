@@ -109,8 +109,10 @@ vector evaluate_surface_vectorized(matrix Phi_x, matrix Phi_y, matrix beta) {
 }
 
 data {
-  int<lower=0> N_data;      // Number of observations
-  matrix[N_data,5] Data;         // Particle Velocities with Positions for now (t, x, y, v_x, v_y)
+  int<lower=1> N_data;      // Number of observations
+  int<lower=1> N_drifters; //Number of drifters
+  array[N_drifters] int<lower=2> obs_per_drifter; //Number of observations per drifter
+  matrix[N_data,3] Data;         // Particle Velocities and time
   int<lower=1> GMM_num; // Number of Gaussian Mixtures in the Transformation
   matrix[GMM_num,2] GMM_means; // Means of all Gaussian Mixtures;
   array[2,2,GMM_num] real GMM_cov; // Covariance matrices of all Mixtures
@@ -129,9 +131,9 @@ transformed data {
   real logit_prior_mean;
 
   if(N_models == 2){
-    logit_prior_mean = 100;
+    logit_prior_mean = 10;
   } else{
-    logit_prior_mean = log(2.0/(M-2));
+    logit_prior_mean = log(2.0/(N_models-2));
   }
 
   real log_prior_mean = 0.0;
@@ -150,6 +152,9 @@ transformed data {
 
   real sigma_vel_alpha = 4;
   real sigma_vel_beta = 1;
+
+  real sigma_pos_alpha = 10;
+  real sigma_pos_beta = 1;
 
   // --- Pre-calculate GMM values ---
   vector[GMM_num] GMM_sd_x;        // sqrt(cov[1,1])
@@ -214,7 +219,8 @@ parameters {
   vector<lower=0>[N_models] logit_ls;  // Length Scales for the logit surfaces
   array[N_models] matrix[M+1, M+1] log_zs; // zs for the log surfaces
   array[N_models] matrix[M+1, M+1] logit_zs; // zs for the logit surfaces
-  real<lower=0> sigma_vel; // Velocity Sigma
+  real<lower=0> sigma_vel; // Velocity Error Sigma
+  real<lower=0> sigma_pos; // Positional Error Sigma
 }
 
 transformed parameters {
@@ -233,9 +239,8 @@ transformed parameters {
     }
   }
 
-
-
-
+  real sigma2_vel = sigma_vel*sigma_vel;
+  real sigma2_pos = sigma_pos*sigma_pos;
 
 }
 
@@ -249,6 +254,7 @@ model {
     logit_ls ~ inv_gamma(logit_l_alpha, logit_l_beta);  //approx jeffrey's
 
     sigma_vel ~ inv_gamma(sigma_vel_alpha, sigma_vel_beta); //approx jeffrey's
+    sigma_pos ~ inv_gamma(sigma_pos_alpha, sigma_pos_beta);
 
     for(k in 1:N_models){
        // Pure Standard Normal.
@@ -286,8 +292,36 @@ model {
   }
 
   profile("Likelihood"){
-    Data[, 4] ~ normal(mu_vx, sigma_vel);
-    Data[, 5] ~ normal(mu_vy, sigma_vel);
+
+    int start_index = 1;
+
+    for(i in 1:N_drifters){
+
+      int cur_N_obs = obs_per_drifter[i];
+
+      int end_index = start_index + cur_N_obs - 1;
+
+      vector[cur_N_obs-1] cur_t_present = Data[start_index:(end_index-1),1];
+      vector[cur_N_obs-1] cur_x_pos_present = Data[start_index:(end_index-1),2];
+      vector[cur_N_obs-1] cur_y_pos_present = Data[start_index:(end_index-1),3];
+      vector[cur_N_obs-1] cur_x_vel_present = mu_vx[start_index:(end_index-1)];
+      vector[cur_N_obs-1] cur_y_vel_present = mu_vy[start_index:(end_index-1)];
+
+      vector[cur_N_obs-1] cur_t_future = Data[(start_index+1):end_index,1];
+      vector[cur_N_obs-1] cur_x_pos_future = Data[(start_index+1):end_index,2];
+      vector[cur_N_obs-1] cur_y_pos_future = Data[(start_index+1):end_index,3];
+
+      vector[cur_N_obs-1] cur_dt = cur_t_future - cur_t_present;
+
+      cur_x_pos_future ~ normal(cur_x_pos_present + cur_x_vel_present.*cur_dt, sqrt(2*sigma2_pos + sigma2_vel.*cur_dt));
+      cur_y_pos_future ~ normal(cur_y_pos_present + cur_y_pos_present.*cur_dt, sqrt(2*sigma2_pos + sigma2_vel.*cur_dt));
+
+      start_index += cur_N_obs;
+
+    }
+
+
+
   }
 
 
