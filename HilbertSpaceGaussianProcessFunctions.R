@@ -2,75 +2,86 @@ library(plotly)
 library(MCMCpack)
 library(stringr)
 
-get_compSpace_pos = function(GMM, curPos_phy){
+evaluateHSGP = function(z, k, l, M, border, curPos){
 
-  n_models = length(GMM$Weights)
-
-  x_cdf = sum(apply(matrix(1:n_models),MARGIN = 1, FUN = function(model){
-    pnorm(curPos_phy[1], mean = GMM$Mean[model, 1], sd = sqrt(GMM$Cov[[model]][1,1]))
-  }) * GMM$Weights)
-
-  cond_log_weights_uw = apply(matrix(1:n_models),MARGIN = 1, FUN = function(model){
-    dnorm(curPos_phy[1], mean = GMM$Mean[model, 1], sd = sqrt(GMM$Cov[[model]][1,1]), log = T) + log(GMM$Weights[model])
-  })
-
-  max_cond_log_weights_uw = max(cond_log_weights_uw)
-
-  cond_log_weights = cond_log_weights_uw - (max_cond_log_weights_uw + log(sum(exp(cond_log_weights_uw - max_cond_log_weights_uw))))
-
-  cond_weights = exp(cond_log_weights)
-
-  y_given_x_cdf = sum(apply(matrix(1:n_models), MARGIN = 1, FUN = function(model){
-    pnorm(curPos_phy[2], mean = GMM$Mean[model, 2] + GMM$Cov[[model]][2,1]*(1/GMM$Cov[[model]][1,1])*(curPos_phy[1] - GMM$Mean[model, 1]), sd = sqrt(GMM$Cov[[model]][2,2] - GMM$Cov[[model]][2,1]*(1/GMM$Cov[[model]][1,1])*GMM$Cov[[model]][1,2]))
-  }) * cond_weights)
-
-  c(x_cdf, y_given_x_cdf)
-
-}
-
-compSpaceData = function(GMM, phySpace_Data){
-
-  compSpace = data.frame(t(apply(matrix(1:nrow(phySpace_Data)), MARGIN = 1, FUN = function(i){get_compSpace_pos(GMM, c(phySpace_Data$X[i], phySpace_Data$Y[i]))})), phySpace_Data$Model)
-  names(compSpace) = c("X","Y","Model")
-
-  compSpace
-
-}
-
-sampleGMM = function(phy_space_border, lambda = 19, border_buffer_perc = 0.1, dim_sigma = 0.1){
-
-  phy_x_width = phy_space_border[3] - phy_space_border[1]
-  phy_y_width = phy_space_border[4] - phy_space_border[2]
-
-  n_comp = rpois(n = 1,lambda = lambda) + 1
-
-  mu_x = runif(n_comp, min = phy_space_border[1] + border_buffer_perc*phy_x_width, max = phy_space_border[3] - border_buffer_perc*phy_x_width)
-  mu_y = runif(n_comp, min = phy_space_border[2] + border_buffer_perc*phy_y_width, max = phy_space_border[4] - border_buffer_perc*phy_y_width)
-
-  mu = matrix(c(mu_x, mu_y), byrow = F, ncol = 2)
-
-  Sigmas = replicate(n_comp, riwish(4, matrix(c((dim_sigma*phy_x_width)^2, 0,0,(dim_sigma*phy_y_width)^2), nrow = 2)), F)
-
-  wts = as.vector(rdirichlet(n = 1, alpha = rep(1,n_comp)))
-
-
-  GMM = list(Mean = mu, Cov = Sigmas, Weights = wts)
-
-  GMM
-
-}
-
-evaluateHSGP = function(z, k, l, M, curPos){
+  Lx = border[3] - border[1]
+  Ly = border[4] - border[2]
 
   omega = (0:M)*pi
 
   spec_den = sqrt(2*pi)*l*exp(-0.5*l^2*omega^2)
+
   beta = k*diag(sqrt(spec_den)) %*% z %*% diag(sqrt(spec_den))
 
-  phi_x = c(1, sqrt(2)*cos(omega[1:M+1]*curPos[1]))
-  phi_y = c(1, sqrt(2)*cos(omega[1:M+1]*curPos[2]))
+  phi_x = c(1, sqrt(2)*cos(omega[1:M+1]*(curPos[1] - border[1])/Lx))
+  phi_y = c(1, sqrt(2)*cos(omega[1:M+1]*(curPos[2] - border[2])/Ly))
 
   as.numeric(phi_x %*% beta %*% phi_y)
+
+}
+
+curTime = 1.1
+
+evaluateHSGP_1D = function(z, k, l, M, boundary, curTime, prior_mean){
+
+  Lt = diff(boundary)
+
+  omega = (0:M)*pi
+
+  spec_den = sqrt(2*pi)*l*exp(-0.5*l^2*omega^2)
+
+  beta = k*sqrt(spec_den)*z
+
+  phi = c(1, sqrt(2)*cos(omega[1:M+1]*(curTime - boundary[1])/Lt))
+
+  sum(phi * beta) + prior_mean
+
+}
+
+evaluateHSGP_1D_Derivative = function(z, k, l, M, boundary, curTime){
+
+  Lt = diff(boundary)
+
+  omega = (1:M)*pi
+
+  spec_den = sqrt(2*pi)*l*exp(-0.5*l^2*omega^2)
+
+  beta = k*sqrt(spec_den)*z[1:M+1] * (-1*omega/Lt)
+
+  phi = sqrt(2)*sin(omega[1:M]*(curTime - boundary[1])/Lt)
+
+  sum(phi * beta)
+
+}
+
+FullTrajectoriesHSGP = sampleFullTrajectoriesHSGP(2, 10)
+border = c(-5,-5,5,5)
+
+t_res = 100
+
+getMeanCoefsEst = function(FullTrajectoriesHSGP, sampledPath, baseVectorFields, border, boundary, t_res){
+
+  M_Path = length(sampledPath$x_zs) - 1
+  M_Traj = nrow(FullTrajectoriesHSGP$log_z[[1]])-1
+
+  Lt = diff(boundary)
+
+  t_grid = seq(boundary[1], boundary[2], length.out = t_res + 1)
+
+  delta_t = t_grid[2] - t_grid[1]
+
+  x_seq = apply(matrix(t_grid), MARGIN = 1, FUN = evaluateHSGP_1D, z = sampledPath$x_zs, k = sampledPath$x_k, l = sampledPath$x_l, M = M_Path, boundary = boundary)
+  y_seq = apply(matrix(t_grid), MARGIN = 1, FUN = evaluateHSGP_1D, z = sampledPath$y_zs, k = sampledPath$y_k, l = sampledPath$y_l, M = M_Path, boundary = boundary)
+
+  all_pos_mat = cbind(t_grid, x_seq, y_seq)
+
+  mu_v = apply(all_pos_mat, MARGIN = 1, FUN = function(row){
+    TrajWeightedBaseVectorFields_HSGP(t = row[1], curPos = row[2:3], baseVectorFields = baseVectorFields, sampledHSGP = FullTrajectoriesHSGP, M = M_Traj, border = border)
+  })
+
+  sin_b = sqrt(2) * sin(outer((t_grid - boundary[1])/Lt, 1:M_Path * pi))
+
+  c = t(mu_v %*% sin_b * delta_t) / Lt
 
 }
 
@@ -90,36 +101,18 @@ l_logit = sampledHSGP$logit_l[1]
 logit_prior_mean = 10
 color_limits = c(0,2)
 
-plotHSGP = function(grid_res, z_log, k_log, l_log, z_logit, k_logit, l_logit, logit_prior_mean, M, color_limits, GMM, phySpaceBorder){
+plotHSGP = function(grid_res, z_log, k_log, l_log, M, color_limits, border){
 
-  x_seq_comp = y_seq_comp = seq(0,1,length.out = grid_res+1)
-  comp_grid = expand.grid(x_seq_comp, y_seq_comp)
+  x_seq = seq(border[1],border[3],length.out = grid_res+1)
+  y_seq = seq(border[2],border[4],length.out = grid_res+1)
+  plot_grid = expand.grid(x_seq, y_seq)
 
-  x_seq_phy = seq(phySpaceBorder[1],phySpaceBorder[3],length.out = grid_res+1)
-  y_seq_phy = seq(phySpaceBorder[2],phySpaceBorder[4],length.out = grid_res+1)
-  phy_grid = expand.grid(x_seq_phy, y_seq_phy)
-  phy_grid_comp = compSpaceData(GMM, data.frame(X = phy_grid[,1], Y = phy_grid[,2], Model = NA))[,c(1,2)]
+  values_coef = matrix(exp(apply(plot_grid, MARGIN = 1, FUN = evaluateHSGP, z = z_log, k=k_log, l=l_log, M=M, border=border)), byrow = F, nrow = grid_res+1)
 
-  values_coef_comp = matrix(exp(apply(comp_grid, MARGIN = 1, FUN = evaluateHSGP, z = z_log, k=k_log, l=l_log, M=M)), byrow = F, nrow = grid_res+1)
-  values_weight_comp = matrix(invlogit(apply(comp_grid, MARGIN = 1, FUN = evaluateHSGP, z = z_logit, k=k_logit, l=l_logit, M=M) + logit_prior_mean), byrow = F, nrow = grid_res+1)
-  values_traj_comp = values_coef_comp*values_weight_comp
-
-  coef_surface_comp = plot_ly(x = x_seq_comp, y = y_seq_comp, z = values_coef_comp, type = "surface", color_scale = "Viridis")
-  weight_surface_comp = plot_ly(x = x_seq_comp, y = y_seq_comp, z = values_weight_comp, type = "surface")
-  traj_surface_comp = plot_ly(x = x_seq_comp, y = y_seq_comp, z = values_traj_comp, type = "surface", color_scale = "Viridis", cmin = color_limits[1], cmax = color_limits[2])
-
-  values_coef_phy = matrix(exp(apply(phy_grid_comp, MARGIN = 1, FUN = evaluateHSGP, z = z_log, k=k_log, l=l_log, M=M)), byrow = F, nrow = grid_res+1)
-  values_weight_phy = matrix(invlogit(apply(phy_grid_comp, MARGIN = 1, FUN = evaluateHSGP, z = z_logit, k=k_logit, l=l_logit, M=M) + logit_prior_mean), byrow = F, nrow = grid_res+1)
-  values_traj_phy = values_coef_phy*values_weight_phy
-
-  coef_surface_phy = plot_ly(x = x_seq_phy, y = y_seq_phy, z = values_coef_phy, type = "surface", color_scale = "Viridis")
-  weight_surface_phy = plot_ly(x = x_seq_phy, y = y_seq_phy, z = values_weight_phy, type = "surface")
-  traj_surface_phy = plot_ly(x = x_seq_phy, y = y_seq_phy, z = values_traj_phy, type = "surface", color_scale = "Viridis", cmin = color_limits[1], cmax = color_limits[2])
+  coef_surface = plot_ly(x = x_seq, y = y_seq, z = values_coef, type = "surface", color_scale = "Viridis")
 
 
-
-  list("Computational" = list("Coefficient" = coef_surface_comp, "Weight" = weight_surface_comp, "Trajectory" = traj_surface_comp),
-       "Physical" = list("Coefficient" = coef_surface_phy, "Weight" = weight_surface_phy, "Trajectory" = traj_surface_phy))
+  list("Coefficient" = coef_surface, "CoefValues" = values_coef)
 
 }
 
@@ -128,49 +121,79 @@ M=10
 
 sampleFullTrajectoriesHSGP = function(N_models, M, log_k_alpha = 9, log_k_beta = 2,
                                       log_l_alpha = 4, log_l_beta = 1,
-                                      logit_k_alpha = 2, logit_k_beta = 10,
-                                      logit_l_alpha = 4, logit_l_beta = 1){
+                                      logit_k_alpha = 4, logit_k_beta = 1,
+                                      logit_l_alpha = 10, logit_l_beta = 1){
 
-  log_ks = rinvgamma(n = N_models, shape = log_k_alpha, scale = log_k_beta)
-  log_ls = rinvgamma(n = N_models, shape = log_l_alpha, scale = log_l_beta)
+  # log_ks = rinvgamma(n = N_models, shape = log_k_alpha, scale = log_k_beta)
+  # log_ls = rinvgamma(n = N_models, shape = log_l_alpha, scale = log_l_beta)
 
-  logit_ks = rinvgamma(n = N_models, shape = logit_k_alpha, scale = logit_k_beta)
-  logit_ls = rinvgamma(n = N_models, shape = logit_l_alpha, scale = logit_l_beta)
+  log_ks = rep(0.175, N_models)
+  log_ls = rep(0.2, N_models)
+
 
   log_zs = list()
-  logit_zs = list()
 
   for(i in 1:N_models){
 
     log_zs[[i]] = matrix(rnorm((M+1)^2), nrow = M+1)
-    logit_zs[[i]] = matrix(rnorm((M+1)^2), nrow = M+1)
 
   }
 
-  list(log_z = log_zs, logit_z = logit_zs, log_k = log_ks, log_l = log_ls, logit_k = logit_ks, logit_l = logit_ls)
+  list(log_z = log_zs, log_k = log_ks, log_l = log_ls)
 
 
 }
 
-sampledHSGP = sampleFullTrajectoriesHSGP(2, 10)
+samplePathHSGP = function(M, x_k_alpha = 4, x_k_beta = 10,
+                               x_l_alpha = 20, x_l_beta = 1,
+                               y_k_alpha = 4, y_k_beta = 10,
+                               y_l_alpha = 20, y_l_beta = 1){
 
-plotFullTrajectoriesHSGP = function(sampledHSGP, grid_res, color_limits, GMM, phySpaceBorder){
+  x_k = rinvgamma(n=1,shape = x_k_alpha, scale = x_k_beta)
+  x_l = rinvgamma(n=1,shape = x_l_alpha, scale = x_l_beta)
+
+  y_k = rinvgamma(n=1,shape = y_k_alpha, scale = y_k_beta)
+  y_l = rinvgamma(n=1,shape = y_l_alpha, scale = y_l_beta)
+
+
+  x_zs = rnorm(M+1)
+  y_zs = rnorm(M+1)
+
+  list(x_zs = x_zs, y_zs = y_zs, x_k = x_k, x_l= x_l, y_k = y_k, y_l = y_l)
+
+}
+
+sampledPath = samplePathHSGP(10)
+
+boundary = c(1, 10)
+t_res = 1000
+
+plotPathHSGP = function(sampledPath, t_res, boundary){
+
+  M = length(sampledPath$x_zs) - 1
+
+  t_grid = seq(boundary[1], boundary[2], length.out = t_res + 1)
+
+  x_pos = apply(matrix(t_grid), MARGIN = 1, FUN = evaluateHSGP_1D, z = sampledPath$x_zs, k = sampledPath$x_k, l = sampledPath$x_l, M = M, boundary = boundary)
+  y_pos = apply(matrix(t_grid), MARGIN = 1, FUN = evaluateHSGP_1D, z = sampledPath$y_zs, k = sampledPath$y_k, l = sampledPath$y_l, M = M, boundary = boundary)
+
+  pos_data = data.frame(t = t_grid, x = x_pos, y = y_pos)
+
+  ggplot(data = pos_data, aes(x = x, y = y)) + geom_point()
+
+}
+
+
+plotFullTrajectoriesHSGP = function(sampledHSGP, grid_res, color_limits, border){
 
   N_models = length(sampledHSGP$log_z)
   M = nrow(sampledHSGP$log_z[[1]])-1
-
-  if(N_models == 2){
-    logit_prior_mean = 10
-  } else{
-    logit_prior_mean = log(N_models/(N_models - 2))
-  }
 
   plots = list()
   for(i in 1:N_models){
 
     plots[[i]] = plotHSGP(grid_res = grid_res, z_log = sampledHSGP$log_z[[i]], k_log = sampledHSGP$log_k[i], l_log = sampledHSGP$log_l[i],
-                          z_logit = sampledHSGP$logit_z[[i]], k_logit = sampledHSGP$logit_k[i], l_logit = sampledHSGP$logit_l[i],
-                          logit_prior_mean = logit_prior_mean, M = M, color_limits = color_limits, GMM = GMM, phySpaceBorder = phySpaceBorder)
+                          M = M, color_limits = color_limits, border = border)
 
 
   }
@@ -179,12 +202,15 @@ plotFullTrajectoriesHSGP = function(sampledHSGP, grid_res, color_limits, GMM, ph
 
 }
 
-sampledHSGP$logit_k
+sampledHSGP = sampleFullTrajectoriesHSGP(2, 10)
+border = c(-5,-5,5,5)
 
-sampledHSGP_plots = plotFullTrajectoriesHSGP(sampledHSGP, 100, color_limits = c(0,2), GMM = GMM, phySpaceBorder = phySpaceBorder)
+sampledHSGP_plots = plotFullTrajectoriesHSGP(sampledHSGP, 100, color_limits = c(0,2), border = border)
 
-sampledHSGP_plots[[2]]$Computational$Trajectory
-sampledHSGP_plots[[2]]$Physical$Trajectory
+sampledHSGP_plots[[1]]$Coefficient
+sampledHSGP_plots[[5]]$Trajectory
+
+sampledHSGP$log_z[[1]]
 
 
 M=10
@@ -204,37 +230,32 @@ test_HSGP$Trajectory
 
 plotHSGP(100, coefs, prior_mean, k, l = 0.01, M)
 
+baseVectorFields = function(t, curPos){
 
+  f1 = c(curPos[2],-1*curPos[1])/sqrt(sum(c(curPos[1],curPos[2])^2))
+  f2 = c(curPos[1],curPos[2])/sqrt(sum(c(curPos[1],curPos[2])^2))
+  # f3 = c(sqrt(2),sqrt(2))
+  # f4 = c(-1*curPos[2],curPos[1])/sqrt(sum(c(curPos[1],curPos[2])^2))
+  # f5 = c(-1*curPos[1],-1*curPos[2])/sqrt(sum(c(curPos[1],curPos[2])^2))
+  matrix(c(f1,f2), nrow = 2, byrow = F)
+
+}
 
 TrajWeightedBaseVectorFields_HSGP = function(t, curPos, baseVectorFields,
                                              sampledHSGP,
-                                             logit_prior_mean, M,
-                                             GMM){
+                                             M, border){
   N_models = length(sampledHSGP$log_z)
   M = nrow(sampledHSGP$log_z[[1]])-1
 
-  if(N_models == 2){
-    logit_prior_mean = 10
-  } else{
-    logit_prior_mean = log(N_models/(N_models - 2))
-  }
-
-
-  cur_CompPos = as.numeric(compSpaceData(GMM, data.frame(X = curPos[1],
-                                                         Y = curPos[2],
-                                                         Model = NA))[c(1,2)])
-
   cur_log_value = c()
-  cur_logit_value = c()
 
   for(i in 1:N_models){
 
-    cur_log_value = c(cur_log_value, evaluateHSGP(z = sampledHSGP$log_z[[i]], k = sampledHSGP$log_k[i], l = sampledHSGP$log_l[i], M = M, curPos = cur_CompPos))
-    cur_logit_value = c(cur_logit_value, evaluateHSGP(z = sampledHSGP$logit_z[[i]], k = sampledHSGP$logit_k[i], l = sampledHSGP$logit_l[i], M = M, curPos = cur_CompPos) + logit_prior_mean)
+    cur_log_value = c(cur_log_value, evaluateHSGP(z = sampledHSGP$log_z[[i]], k = sampledHSGP$log_k[i], l = sampledHSGP$log_l[i], M = M, curPos = curPos, border = border))
 
   }
 
-  cur_traj_value = exp(cur_log_value)*invlogit(cur_logit_value)
+  cur_traj_value = exp(cur_log_value)
 
   cur_ModelVel = baseVectorFields(t, curPos)
 
@@ -244,14 +265,15 @@ TrajWeightedBaseVectorFields_HSGP = function(t, curPos, baseVectorFields,
 
 EulerMaruyama = function(startTime, startPos, baseVectorFields,
                          sampledHSGP,
-                         logit_prior_mean, M,
-                         vel_sigma = 0.1, GMM, n_obs = 100, t_step_mean = 0.1){
+                         M, border,
+                         vel_sigma = 0.1, n_obs = 100, t_step_mean = 0.1){
 
   n_dim = length(startPos)
 
   t_sim = c(startTime, startTime + cumsum(rexp(n_obs-1, rate = 1/t_step_mean)))
 
   pos_sim = matrix(startPos, nrow = 1, byrow = T)
+  vel_sim = c()
 
   for(i in 1:(n_obs-1)){
 
@@ -260,44 +282,51 @@ EulerMaruyama = function(startTime, startPos, baseVectorFields,
     cur_pos = pos_sim[i,]
 
     drift = TrajWeightedBaseVectorFields_HSGP(cur_t, cur_pos, baseVectorFields,
-                                              sampledHSGP,
-                                              logit_prior_mean, M, GMM)
+                                              sampledHSGP, M, border)
 
     diffusion = rnorm(n_dim, mean = 0, sd = vel_sigma)
 
     pos_sim = rbind(pos_sim, cur_pos + drift*cur_t_step + diffusion*sqrt(cur_t_step))
+    vel_sim = rbind(vel_sim, drift + diffusion)
 
   }
 
-  full_sim = data.frame(cbind(t_sim, pos_sim))
+  vel_sim = rbind(vel_sim, TrajWeightedBaseVectorFields_HSGP(t_sim[n_obs], pos_sim[n_obs,], baseVectorFields,
+                                                             sampledHSGP, M, border) + rnorm(n_dim, mean = 0, sd = vel_sigma))
 
-  names(full_sim) = c('t', stringr::str_c('X', 1:n_dim))
+
+
+  full_sim = data.frame(cbind(t_sim, pos_sim, vel_sim))
+
+  names(full_sim) = c('t', stringr::str_c('X', 1:n_dim), stringr::str_c('X', 1:n_dim,'v'))
 
   full_sim
 }
 
-test_particle = EulerMaruyama(startTime = 0, startPos = c(-1,1), baseVectorFields, sampledHSGP, logit_prior_mean = 10, M = 10, vel_sigma = 0.1, GMM = GMM, n_obs = 100, t_step_mean = 0.1)
+border = c(-5,-5,5,5)
+
+test_particle = EulerMaruyama(startTime = 0, startPos = c(-2,2), baseVectorFields = baseVectorFields, sampledHSGP = sampledHSGP, M = 10, vel_sigma = 0.1, border = border, n_obs = 100, t_step_mean = 0.05)
 
 plot(test_particle[,2:3])
 
 
-samplePhySpaceParticles = function(n_particles, startTime, n_obs, phySpaceBorder, phySpaceBorderBuffer = 0.1, baseVectorFields,
+samplePhySpaceParticles = function(n_particles, startTime, n_obs, border, borderBuffer = 0.1, baseVectorFields,
                                    sampledHSGP,
-                                   logit_prior_mean, M, GMM, t_step_mean = 0.01, vel_sigma = 0.1, pos_sigma = 0.01){
+                                   M, t_step_mean = 0.01, vel_sigma = 0.1, pos_sigma = 0.01){
 
-  x_phy_width = phySpaceBorder[3] - phySpaceBorder[1]
-  y_phy_width = phySpaceBorder[4] - phySpaceBorder[2]
+  Lx = border[3] - border[1]
+  Ly = border[4] - border[2]
 
-  startPos = data.frame(X = runif(n_particles, min = phySpaceBorder[1] + phySpaceBorderBuffer*x_phy_width, max = phySpaceBorder[3] - phySpaceBorderBuffer*x_phy_width),
-                        Y = runif(n_particles, min = phySpaceBorder[2] + phySpaceBorderBuffer*y_phy_width, max = phySpaceBorder[4] - phySpaceBorderBuffer*y_phy_width))
+  startPos = data.frame(X = runif(n_particles, min = border[1] + borderBuffer*Lx, max = border[3] - borderBuffer*Lx),
+                        Y = runif(n_particles, min = border[2] + borderBuffer*Ly, max = border[4] - borderBuffer*Ly))
 
   particleData_List = list()
 
   for(i in 1:n_particles){
 
     particleData_List[[i]] = cbind(EulerMaruyama(startTime = startTime, startPos = c(startPos$X[i], startPos$Y[i]), baseVectorFields = baseVectorFields,
-                                                 sampledHSGP = sampledHSGP, logit_prior_mean = logit_prior_mean, M = M,
-                                                 vel_sigma = vel_sigma, GMM = GMM, n_obs = n_obs, t_step_mean = t_step_mean), str_c("Particle",i))
+                                                 sampledHSGP = sampledHSGP, M = M,
+                                                 vel_sigma = vel_sigma, border = border, n_obs = n_obs, t_step_mean = t_step_mean), str_c("Particle",i))
 
     svMisc::progress(i, n_particles)
   }
@@ -305,7 +334,7 @@ samplePhySpaceParticles = function(n_particles, startTime, n_obs, phySpaceBorder
 
   particleData_True = data.frame(do.call(rbind, particleData_List))
 
-  names(particleData_True) = c('t', 'X1','X2', 'Particle')
+  names(particleData_True) = c('t', 'X1','X2','X1v','X2v', 'Particle')
 
   particleData_PosError = matrix(rnorm(2*nrow(particleData_True), mean = 0, sd = pos_sigma), ncol = 2)
 
@@ -319,17 +348,26 @@ samplePhySpaceParticles = function(n_particles, startTime, n_obs, phySpaceBorder
 
 
 
-sampledParticles = samplePhySpaceParticles(100, startTime = 0, n_obs = 10, phySpaceBorder = c(-5,-5,5,5), phySpaceBorderBuffer = 0.2, baseVectorFields, sampledHSGP,
-                        logit_prior_mean = 10, M = 10, GMM = sampledGMM, t_step_mean = 0.01, vel_sigma = 0.1, pos_sigma = 0.01)
-
+sampledParticles = samplePhySpaceParticles(1, startTime = 0, n_obs = 1000, border = border, borderBuffer = 0.2, baseVectorFields, sampledHSGP,
+                        M = 10, t_step_mean = 0.1, vel_sigma = 0, pos_sigma = 0.25)
 
 ggplot(sampledParticles, aes(x = X1, y = X2, color = Particle)) + geom_point()
+ggplot(sampledParticles[abs(sampledParticles$X1)<=5 & abs(sampledParticles$X2)<=5, ], aes(x = X1, y = X2, color = Particle)) + geom_point()
+
+sampledParticles_Subset = sampledParticles[abs(sampledParticles$X1)<=5 & abs(sampledParticles$X2)<=5, ]
 
 
+sampledParticles_Subset = sampledParticles[sampledParticles$X1 >= border[1] & sampledParticles$X1 <= border[3] &
+                                             sampledParticles$X2 >= border[2] & sampledParticles$X2 <= border[4],]
+ggplot(sampledParticles_Subset, aes(x = X1, y = X2, color = Particle)) + geom_point()
 
+testBorder = c(-5,-5,5,5)
+sampledHSGP = sampleFullTrajectoriesHSGP(2, 10)
 
+testData = cbind(0, runif(10000, testBorder[1], testBorder[3]), runif(10000, testBorder[2], testBorder[4]))
 
+testData_V = t(apply(testData[,2:3], MARGIN = 1, FUN = TrajWeightedBaseVectorFields_HSGP, t = 0, baseVectorFields = baseVectorFields, sampledHSGP = sampledHSGP, logit_prior_mean = 10, M = 10, border = testBorder)) + matrix(rnorm(20000, 0, 0.01), nrow = 10000)
 
+plot(testData_V)
 
-
-
+testDataFull = cbind(testData, testData_V)

@@ -2,7 +2,6 @@ library(cmdstanr)
 options(mc.cores = parallel::detectCores())
 library(MASS)
 library(mclust)
-sampledGMM = sampleGMM(c(-5,-5,5,5))
 
 baseGridBoundaries = generate_grid_tree_boundaries(10)
 tree = generate_grid_tree(0.1, c(0,0,1,1))
@@ -77,20 +76,8 @@ Data_vel = matrix(nrow = 1000, ncol = 2)
 
 for(i in 1:1000){
 
-  which_normal = sample(c(1,2), 1, prob = GMM_weights)
-  Data_pos[i,] = mvrnorm(mu = GMM_means[which_normal,], Sigma = GMM_cov[,,which_normal])
-
-  cur_compPos = get_compSpace_pos(sampled_GMM, Data_pos[i,])
-
-  curLogSurfaceVal_1 = evaluateHSGP(z = z_log1, k = k_log, l = l_log, M = 10, curPos = cur_compPos)
-  curLogitSurfaceVal_1 = evaluateHSGP(z = z_logit1, k = k_logit, l = l_logit, M = 10, curPos = cur_compPos) + 10
-  curLogSurfaceVal_2 = evaluateHSGP(z = z_log2, k = k_log, l = l_log, M = 10, curPos = cur_compPos)
-  curLogitSurfaceVal_2 = evaluateHSGP(z = z_logit2, k = k_logit, l = l_logit, M = 10, curPos = cur_compPos) + 10
-
-  curTrajVal = c(exp(curLogSurfaceVal_1)*invlogit(curLogitSurfaceVal_1),
-                 exp(curLogSurfaceVal_2)*invlogit(curLogitSurfaceVal_2))
-
-  Data_vel[i,] = t(baseVectorFields(0,Data_pos[i,]) %*% matrix(curTrajVal)) + rnorm(2,0,0.1)
+  Data_pos[i,] = runif(2, min = -5, max = 5)
+  Data_vel[i,] = TrajWeightedBaseVectorFields_HSGP(0, Data_pos[i,], baseVectorFields, sampledHSGP, logit_prior_mean = 10, M = 10, border = testBorder) + rnorm(2,0,0.1)
 
 }
 
@@ -103,41 +90,56 @@ plot(t(apply(Data_pos, MARGIN = 1, FUN = get_compSpace_pos, GMM = sampled_GMM)))
 Stan_Data = matrix(c(Data_t, Data_pos, Data_vel), nrow = 1000, ncol = 5, byrow = F)
 
 
-testGMM = Mclust(sampledParticles[,2:3], G = 900)
+dataGMM = Mclust(sampledParticles_Subset[,2:3], G = 10)
 
-testGMM_STAN = list(Mean = t(testGMM$parameters$mean),
-                    Cov = asplit(testGMM$parameters$variance$sigma, MARGIN = 3),
-                    Weights = testGMM$parameters$pro)
+dataGMM_STAN = list(Mean = t(dataGMM$parameters$mean),
+                    Cov = asplit(dataGMM$parameters$variance$sigma, MARGIN = 3),
+                    Weights = dataGMM$parameters$pro)
 
-plot(t(apply(sampledParticles[,2:3], MARGIN = 1, FUN = get_compSpace_pos, GMM = testGMM_STAN)))
+plot(t(apply(sampledParticles[,2:3], MARGIN = 1, FUN = get_compSpace_pos, GMM = dataGMM_STAN)))
 plot(sampledParticles[,2:3])
 
 testGMM$parameters
 
+obs_per_drifter = c()
+
+for(i in 1:100){
+
+  cur_drifter = str_c("Particle",i)
+
+  obs_per_drifter = c(obs_per_drifter, sum(sampledParticles_Subset$Particle == cur_drifter))
+
+
+}
+
+testBorder = border
+
+Lx = testBorder[3] - testBorder[1]
+Ly = testBorder[4] - testBorder[2]
+
+
+
 stan_data = list(
-  N_data = 1000,                 # Number of data points
-  N_drifters = 100, # Number of drifters
-  obs_per_drifter = rep(10, 100),
-  Data = sampledParticles[,1:3],                 # Particle Positions (t, x, y)
-  GMM_num = 900,              # Number of Gaussian Mixtures in the Transformation
-  GMM_means = testGMM_STAN$Mean,     # Means of all Gaussian Mixtures;
-  GMM_cov = testGMM$parameters$variance$sigma,        # Covariance matrices of all Mixtures
-  GMM_weights = testGMM_STAN$Weights, #Weights for Mixtures
-  M = 10 #Number of eigenfunctions
+  N_data = nrow(sampledParticles_Subset[,1:5]),                 # Number of data points
+  # N_drifters = 100, # Number of drifters
+  # obs_per_drifter = obs_per_drifter,
+  Data = sampledParticles_Subset[,1:5],                 # Particle Positions (t, x, y, vx, vy)
+  M = 10, #Number of eigenfunctions
+  border = c(-5,-5,5,5)
 )
 
 init_fun <- function() {
   list(
     # Start Magnitudes small (Assume physics is correct, no scaling needed yet)
-    coef_ks = rep(0.1, N_models),
+    log_ks = rep(0.1, N_models),
     logit_ks = rep(0.5, N_models),
 
     # Start Length Scales at a "safe" middle ground (not 0.05, not 100)
-    coef_ls = rep(0.2, N_models),
+    log_ls = rep(0.2, N_models),
     logit_ls = rep(0.15, N_models),
 
     # Start Surfaces FLAT (Crucial!)
-    coef_zs = array(0, dim = c(N_models, M+1, M+1)),
+    log_zs = array(0, dim = c(N_models, M+1, M+1)),
     logit_zs = array(0, dim = c(N_models, M+1, M+1)),
 
     # Start noise reasonable
@@ -191,27 +193,172 @@ mod <- cmdstan_model(
   force_recompile = TRUE
 )
 
+N_models = 2
+M = 10
 
 mod <- cmdstan_model("STAN_Files/SurfaceTrajectoryHSGP.stan")
+mod <- cmdstan_model("STAN_Files/GeminiOptimized.stan")
+mod <- cmdstan_model("STAN_Files/PathHSGPRegression.stan")
+mod <- cmdstan_model("STAN_Files/PathHSGPRegressionwLandK.stan")
+
+
+stan_data = list(
+  N_data = nrow(sampledParticles),                 # Number of data points
+  Data = sampledParticles[,1:3],                 # Particle Positions (t, x, y, vx, vy)
+  M_Drifter = 35, #Number of eigenfunctions
+  drifter_prior_means = c(mean(sampledParticles[,2]), mean(sampledParticles[,3])),
+  drifter_boundaries = c(min(sampledParticles[,1]), max(sampledParticles[,1])),
+  drifter_ks = c(6.85,8.78),
+  drifter_ls = c(0.04,0.04)
+)
+
+stan_data = list(
+  N_data = nrow(sampledParticles),                 # Number of data points
+  Data = sampledParticles[,1:3],                 # Particle Positions (t, x, y, vx, vy)
+  M_Drifter = 50, #Number of eigenfunctions
+  drifter_prior_means = c(mean(sampledParticles[,2]), mean(sampledParticles[,3])),
+  drifter_boundaries = c(min(sampledParticles[,1]), max(sampledParticles[,1]))
+)
 
 fit <- mod$sample(
   data = stan_data,
   chains = 4,
   parallel_chains = 4,
-  iter_warmup = 1000,
-  iter_sampling = 2000
+  iter_warmup = 500,
+  iter_sampling = 1000, refresh = 100
 )
 
+fit <- mod$optimize(data = stan_data, iter = 10000)
+fit <- mod$variational(data = stan_data)
+
+fit$draws()
+fit$output()
 fit$profiles()
 fit$cmdstan_diagnose()
 
-fit_sum = fit$summary()
-max(fit_sum$rhat)
+sampledHSGP$log_z[[1]]
 
-fit_sum[494,]
-which(fit_sum$variable == "sigma_pos")
+fit_sum = fit$summary()
+max(fit_sum$rhat, na.rm = T)
+
+fit_sum[108,]
+which(fit_sum$variable == "drifter_ks[1]")
 
 fit_sum$rhat
+
+fit$draws("drifter_zs", format = 'draws_matrix')
+
+M=35
+t_grid_res = 1000
+N_draws = 4000
+t_boundary = c(min(sampledParticles[,1]), max(sampledParticles[,1]))
+x_mean = mean(sampledParticles[,2])
+y_mean = mean(sampledParticles[,3])
+TrueData = sampledParticles[,1:3]
+
+plotPosteriorPath = function(fit, M, t_grid_res, N_draws, t_boundary, x_mean, y_mean, TrueData, drifter_ks, drifter_ls){
+
+  path_z_draws = fit$draws("drifter_zs", format = "draws_matrix")
+
+  x_z_draws = path_z_draws[,1:(M+1)]
+  y_z_draws = path_z_draws[,1:(M+1) + M+1]
+
+  # path_l_draws = fit$draws("drifter_ls", format = "draws_matrix")
+  #
+  # x_l_draws = path_l_draws[,1]
+  # y_l_draws = path_l_draws[,2]
+  #
+  # path_k_draws = fit$draws("drifter_ks", format = "draws_matrix")
+  #
+  # x_k_draws = path_k_draws[,1]
+  # y_k_draws = path_k_draws[,2]
+
+  t_grid = seq(min(sampledParticles[,1]), max(sampledParticles[,1]), length.out = t_grid_res+1)
+
+  x_pos_draws = y_pos_draws = matrix(nrow = N_draws, ncol = t_grid_res+1)
+
+  for(i in 1:4000){
+
+    x_pos_draws[i,] = apply(matrix(t_grid), MARGIN = 1, FUN = evaluateHSGP_1D, z = as.numeric(x_z_draws[i,]), k = drifter_ks[1],
+                            l = drifter_ls[1], M=M, boundary = t_boundary, prior_mean = x_mean)
+
+    y_pos_draws[i,] = apply(matrix(t_grid), MARGIN = 1, FUN = evaluateHSGP_1D, z = as.numeric(y_z_draws[i,]), k = drifter_ks[2],
+                            l = drifter_ls[2], M=M, boundary = t_boundary, prior_mean = y_mean)
+
+    svMisc::progress(i, 4000)
+
+  }
+
+  x_post_mean = colMeans(x_pos_draws)
+  y_post_mean = colMeans(y_pos_draws)
+
+  PostMean = data.frame(x = x_post_mean, y = y_post_mean)
+
+  x_lower_q = apply(x_pos_draws, MARGIN = 2, FUN = quantile, probs = 0.025)
+  y_lower_q = apply(y_pos_draws, MARGIN = 2, FUN = quantile, probs = 0.025)
+
+  x_upper_q = apply(x_pos_draws, MARGIN = 2, FUN = quantile, probs = 0.975)
+  y_upper_q = apply(y_pos_draws, MARGIN = 2, FUN = quantile, probs = 0.975)
+
+  ConfBand = data.frame(x_lower = x_lower_q, x_upper = x_upper_q, y_lower = y_lower_q, y_upper = y_upper_q)
+
+  ggplot() +
+    # geom_rect(data = ConfBand,
+    #           aes(xmin = x_lower, xmax = x_upper, ymin = y_lower, ymax = y_upper),
+    #           fill = "blue", alpha = 0.2) +
+    geom_path(data = PostMean, aes(x = x, y = y), size = 1.5, color = "blue") +
+    geom_point(data = TrueData, aes(x = X1, y = X2), color = "red", alpha = 0.25)
+
+
+
+}
+
+plotPosteriorPath(fit, M, t_grid_res = 1000, N_draws, t_boundary, x_mean, y_mean, TrueData, drifter_ks = c(6.85,8.78), drifter_ls = c(0.04,0.04))
+
+path_z_draws = fit$draws("drifter_zs", format = "draws_matrix")
+
+x_z_draws = path_z_draws[,1:(M+1)]
+y_z_draws = path_z_draws[,1:(M+1) + M+1]
+
+path_l_draws = fit$draws("drifter_ls", format = "draws_matrix")
+
+x_l_draws = path_l_draws[,1]
+y_l_draws = path_l_draws[,2]
+
+path_k_draws = fit$draws("drifter_ks", format = "draws_matrix")
+
+x_k_draws = path_k_draws[,1]
+y_k_draws = path_k_draws[,2]
+
+t_grid = seq(min(sampledParticles[,1]), max(sampledParticles[,1]), length.out = t_grid_res+1)
+
+x_pos_draws = y_pos_draws = matrix(nrow = N_draws, ncol = t_grid_res+1)
+
+mean(y_k_draws)
+
+sd(TrueData[,2])
+sd(TrueData[,3])
+
+median(dist(TrueData[,1])/100)
+
+4/(0.04*pi)
+
+for(i in 1:4000){
+
+  x_pos_draws[i,] = apply(matrix(t_grid), MARGIN = 1, FUN = evaluateHSGP_1D, z = as.numeric(x_z_draws[i,]), k = as.numeric(x_k_draws[i,]),
+                          l = as.numeric(x_l_draws[i,]), M=M, boundary = t_boundary, prior_mean = x_mean)
+
+  y_pos_draws[i,] = apply(matrix(t_grid), MARGIN = 1, FUN = evaluateHSGP_1D, z = as.numeric(y_z_draws[i,]), k = as.numeric(y_k_draws[i,]),
+                          l = as.numeric(y_l_draws[i,]), M=M, boundary = t_boundary, prior_mean = y_mean)
+
+  svMisc::progress(i, 4000)
+
+}
+
+x_post_mean = colMeans(x_pos_draws)
+y_post_mean = colMeans(y_pos_draws)
+
+plot(x_post_mean, y_post_mean)
 
 # 1. Extract all draws for the coefficient Zs
 # format: [iterations, chains, flat_index]
@@ -235,12 +382,23 @@ for(i in 1:4000){
 }
 
 grid_res = 100
-n_iters = 4000
-
+n_iters = 8000
+M=10
+GMM = dataGMM_STAN
 getGridStanHSGP = function(fit, grid_res, phySpaceBorder, M, n_iters){
 
   log_draws <- fit$draws("log_zs", format = "draws_matrix")
   logit_draws <- fit$draws("logit_zs", format = "draws_matrix")
+
+  log_ks_1 <- as.vector(fit$draws("log_ks[1]", format = "draws_matrix")[1:n_iters])
+  log_ls_1 <- as.vector(fit$draws("log_ls[1]", format = "draws_matrix")[1:n_iters])
+  log_ks_2 <- as.vector(fit$draws("log_ks[2]", format = "draws_matrix")[1:n_iters])
+  log_ls_2 <- as.vector(fit$draws("log_ls[2]", format = "draws_matrix")[1:n_iters])
+
+  logit_ks_1 <- as.vector(fit$draws("logit_ks[1]", format = "draws_matrix")[1:n_iters])
+  logit_ls_1 <- as.vector(fit$draws("logit_ls[1]", format = "draws_matrix")[1:n_iters])
+  logit_ks_2 <- as.vector(fit$draws("logit_ks[2]", format = "draws_matrix")[1:n_iters])
+  logit_ls_2 <- as.vector(fit$draws("logit_ls[2]", format = "draws_matrix")[1:n_iters])
 
   log_draws_array_1 = array(dim = c(M+1, M+1, n_iters))
   log_draws_array_2 = array(dim = c(M+1, M+1, n_iters))
@@ -270,10 +428,10 @@ getGridStanHSGP = function(fit, grid_res, phySpaceBorder, M, n_iters){
 
   coef_grid_draws_2 = array(dim = c(grid_res+1, grid_res+1, n_iters))
   weight_grid_draws_2 = array(dim = c(grid_res+1, grid_res+1, n_iters))
-
-
+i=1
+curPos = as.numeric(phy_grid_comp[1,])
   for(i in 1:n_iters){
-    coef_grid_draws_1[,,i] = matrix(exp(apply(phy_grid_comp, MARGIN = 1, FUN = evaluateHSGP, z = log_draws_array_1[,,i], k= k_log, l=l_log, M=M)), byrow = F, nrow = grid_res+1)
+    coef_grid_draws_1[,,i] = matrix(exp(apply(phy_grid_comp, MARGIN = 1, FUN = evaluateHSGP, z = log_draws_array_1[,,i], k= log_ks_1[i], l=log_ls_1[i], M=M)), byrow = F, nrow = grid_res+1)
     weight_grid_draws_1[,,i] = matrix(invlogit(apply(phy_grid_comp, MARGIN = 1, FUN = evaluateHSGP, z = logit_draws_array_1[,,i], k= k_logit, l=l_logit, M=M)), byrow = F, nrow = grid_res+1)
     coef_grid_draws_2[,,i] = matrix(exp(apply(phy_grid_comp, MARGIN = 1, FUN = evaluateHSGP, z = log_draws_array_2[,,i], k= k_log, l=l_log, M=M)), byrow = F, nrow = grid_res+1)
     weight_grid_draws_2[,,i] = matrix(invlogit(apply(phy_grid_comp, MARGIN = 1, FUN = evaluateHSGP, z = logit_draws_array_2[,,i], k= k_logit, l=l_logit, M=M)), byrow = F, nrow = grid_res+1)
@@ -288,47 +446,35 @@ getGridStanHSGP = function(fit, grid_res, phySpaceBorder, M, n_iters){
 grid_res
 
 n_iters = 8000
-getGridStanHSGP = function(fit, grid_res, GMM, phySpaceBorder, M, n_iters, prior_logit_mean = 10){
+getGridStanHSGP = function(fit, grid_res, M, n_iters, prior_logit_mean, border){
+
+  Lx = border[3] - border[1]
+  Ly = border[4] - border[2]
 
   # --- 1. Setup Constants ---
   # Number of coefficients per model
   N_basis = (M+1)^2
-  N_points = (grid_res+1)^2
   omega = (0:M) * pi
 
-  x_seq_phy = seq(phySpaceBorder[1], phySpaceBorder[3], length.out = grid_res+1)
-  y_seq_phy = seq(phySpaceBorder[2], phySpaceBorder[4], length.out = grid_res+1)
-
-  phy_grid = expand.grid(x_seq_phy, y_seq_phy)
-  phy_grid_comp = compSpaceData(GMM, data.frame(X = phy_grid[,1], Y = phy_grid[,2], Model = NA))[,c(1,2)]
+  # Create Grid Vectors (0 to 1)
+  x_seq = seq(border[1], border[3], length.out = grid_res + 1)
+  y_seq = seq(border[2], border[4], length.out = grid_res + 1)
 
   # --- 2. Pre-calculate Basis Matrices (The Speedup) ---
   # We do this ONCE, not inside the loop.
   # Phi_x: [(grid_res+1) x (M+1)]
 
   # Helper to make cosine matrix
-  make_phi <- function(coords) {
+  make_phi <- function(coords, start, L) {
     # n=0 is column of 1s
     # n>0 is sqrt(2)*cos(...)
     # outer() creates the matrix of coords vs frequencies
-    waves <- sqrt(2) * cos(outer(coords, omega[2:(M+1)]))
+    waves <- sqrt(2) * cos(outer((coords - start)/L, omega[2:(M+1)]))
     return(cbind(1, waves))
   }
 
-
-  basis_x <- make_phi(phy_grid_comp[,1])
-  basis_y <- make_phi(phy_grid_comp[,2])
-
-  H = matrix(0, nrow = N_points, ncol = N_basis)
-
-  col_index = 1
-
-  for(i in 1:(M+1)){
-    for(j in 1:(M+1)){
-      H[,col_index] = basis_x[,j] * basis_y[,i]
-      col_index = col_index + 1
-    }
-  }
+  Phi_x <- make_phi(x_seq, border[1], Lx)
+  Phi_y <- make_phi(y_seq, border[2], Ly)
 
   # --- 3. Extract Hyperparameters ---
   # We need the specific k and l for every draw to scale the Zs correctly
@@ -362,32 +508,46 @@ getGridStanHSGP = function(fit, grid_res, GMM, phySpaceBorder, M, n_iters, prior
   log_draws <- fit$draws("log_zs", format = "draws_matrix")
   logit_draws <- fit$draws("logit_zs", format = "draws_matrix")
 
-  log_draws_1 = matrix(log_draws[,1:N_basis*2-1], nrow = n_iters, ncol = N_basis, byrow = F)
-  log_draws_2 = matrix(log_draws[,1:N_basis*2], nrow = n_iters, ncol = N_basis, byrow = F)
+  log_draws_1 = array(dim = c(M+1, M+1, n_iters))
+  log_draws_2 = array(dim = c(M+1, M+1, n_iters))
 
-  logit_draws_1 = matrix(logit_draws[,1:N_basis*2-1], nrow = n_iters, ncol = N_basis, byrow = F)
-  logit_draws_2 = matrix(logit_draws[,1:N_basis*2], nrow = n_iters, ncol = N_basis, byrow = F)
+  logit_draws_1 = array(dim = c(M+1, M+1, n_iters))
+  logit_draws_2 = array(dim = c(M+1, M+1, n_iters))
+
+  for(i in 1:n_iters){
+
+    log_draws_1[,,i] = matrix(log_draws[i,1:((M+1)^2)*2 - 1], nrow = M+1, ncol = M+1, byrow = F)
+    log_draws_2[,,i] = matrix(log_draws[i,1:((M+1)^2)*2], nrow = M+1, ncol = M+1, byrow = F)
+
+    logit_draws_1[,,i] = matrix(logit_draws[i,1:((M+1)^2)*2 - 1], nrow = M+1, ncol = M+1, byrow = F)
+    logit_draws_2[,,i] = matrix(logit_draws[i,1:((M+1)^2)*2], nrow = M+1, ncol = M+1, byrow = F)
+
+  }
 
   # --- 5. Initialize Output Arrays ---
-  coef_1_mat <- matrix(0, N_points, n_iters)
-  weight_1_mat <- matrix(0, N_points, n_iters)
-  coef_2_mat <- matrix(0, N_points, n_iters)
-  weight_2_mat <- matrix(0, N_points, n_iters)
+  coef_grid_draws_1 = array(dim = c(grid_res+1, grid_res+1, n_iters))
+  weight_grid_draws_1 = array(dim = c(grid_res+1, grid_res+1, n_iters))
+  traj_grid_draws_1 = array(dim = c(grid_res+1, grid_res+1, n_iters))
 
-  get_flat_beta <- function(z_row, k, l) {
-    # 1. Calculate 2D spectral density (Isotropic Squared Exp)
-    # We need the frequency for every COLUMN of H (every m,n pair)
-    # Same loops as above to ensure alignment
+  coef_grid_draws_2 = array(dim = c(grid_res+1, grid_res+1, n_iters))
+  weight_grid_draws_2 = array(dim = c(grid_res+1, grid_res+1, n_iters))
+  traj_grid_draws_2 = array(dim = c(grid_res+1, grid_res+1, n_iters))
 
-    # Generate indices matching the H construction
-    indices <- expand.grid(m = 0:M, n = 0:M) # This generates column-major order
-    omega2 <- (indices$m * pi)^2 + (indices$n * pi)^2
+  # Helper for Spectral Density calculation
+  get_beta_matrix <- function(z_flat, k, l, M) {
+    # Calculate Spectral Density for this specific length scale
+    # Squared Exponential Kernel
+    # Note: Using Unit Variance first (k=1.0 inside), multiply by k at end
+    spd_unit <- sqrt(2*pi) * l * exp(-0.5 * l^2 * omega^2)
+    scale_vec <- sqrt(spd_unit)
 
-    # Calculate scale vector
-    scale_vec <- sqrt(sqrt(2*pi) * l * exp(-0.5 * l^2 * omega2))
+    # Reshape Z to matrix
+    z_mat <- matrix(z_flat, nrow = M+1, ncol = M+1)
 
-    # Apply magnitude k and noise z
-    return(k * scale_vec * z_row)
+    # Apply Scaling: D * Z * D
+    beta_unit <- diag(scale_vec) %*% z_mat %*% diag(scale_vec)
+
+    return(k * beta_unit)
   }
 
   # --- 6. The Main Loop (Now Fast) ---
@@ -398,41 +558,51 @@ getGridStanHSGP = function(fit, grid_res, GMM, phySpaceBorder, M, n_iters, prior
 
   for(i in 1:n_iters){
 
-    # Model 1
-    beta_log_1 <- get_flat_beta(log_draws_1[i, ], log_ks_1[i], log_ls_1[i])
-    # H (N x Basis) * beta (Basis x 1) -> (N x 1)
-    # This is the heavy lifting, done via BLAS
-    coef_1_mat[, i] <- exp(H %*% beta_log_1)
+    # --- Model 1 ---
+    # A. Coefficients
+    beta_log_1 <- get_beta_matrix(log_draws_1[,,i], log_ks_1[i], log_ls_1[i], M)
+    # Tensor Projection: Phi_x * Beta * Phi_y'
+    surf_log_1 <- Phi_x %*% beta_log_1 %*% t(Phi_y)
+    coef_grid_draws_1[,,i] <- exp(surf_log_1) # Exponential Link
 
-    beta_logit_1 <- get_flat_beta(logit_draws_1[i, ], logit_ks_1[i], logit_ls_1[i])
-    weight_1_mat[, i] <- invlogit(H %*% beta_logit_1 + prior_logit_mean)
+    # B. Weights
+    beta_logit_1 <- get_beta_matrix(logit_draws_1[,,i], logit_ks_1[i], logit_ls_1[i], M)
+    surf_logit_1 <- Phi_x %*% beta_logit_1 %*% t(Phi_y)
+    # Add prior mean shift for logits if needed (e.g., -2 or +0.69)
+    # assuming prior_mean is handled implicitly or added here
+    weight_grid_draws_1[,,i] <- invlogit(surf_logit_1 + prior_logit_mean) # Sigmoid Link
 
-    # Model 2
-    beta_log_2 <- get_flat_beta(log_draws_2[i, ], log_ks_2[i], log_ls_2[i])
-    coef_2_mat[, i] <- exp(H %*% beta_log_2)
+    traj_grid_draws_1[,,i] = coef_grid_draws_1[,,i]*weight_grid_draws_1[,,i]
 
-    beta_logit_2 <- get_flat_beta(logit_draws_2[i, ], logit_ks_2[i], logit_ls_2[i])
-    weight_2_mat[, i] <- invlogit(H %*% beta_logit_2 + prior_logit_mean)
+    # --- Model 2 ---
+    # A. Coefficients
+    beta_log_2 <- get_beta_matrix(log_draws_2[,,i], log_ks_2[i], log_ls_2[i], M)
+    surf_log_2 <- Phi_x %*% beta_log_2 %*% t(Phi_y)
+    coef_grid_draws_2[,,i] <- exp(surf_log_2)
+
+    # B. Weights
+    beta_logit_2 <- get_beta_matrix(logit_draws_2[,,i], logit_ks_2[i], logit_ls_2[i], M)
+    surf_logit_2 <- Phi_x %*% beta_logit_2 %*% t(Phi_y)
+    weight_grid_draws_2[,,i] <- invlogit(surf_logit_2 + prior_logit_mean)
+
+    traj_grid_draws_2[,,i] = coef_grid_draws_2[,,i]*weight_grid_draws_2[,,i]
 
     setTxtProgressBar(pb, i)
   }
   close(pb)
 
-
-
   # Return list of results
   return(list(
-    coef_1 = coef_1_mat,
-    weight_1 = weight_1_mat,
-    traj_1 = coef_1_mat*weight_1_mat,
-    coef_2 = coef_2_mat,
-    weight_2 = weight_2_mat,
-    traj_2 = coef_2_mat*weight_2_mat,
-    x_seq = x_seq_phy,
-    y_seq = y_seq_phy
+    coef_1 = coef_grid_draws_1,
+    weight_1 = weight_grid_draws_1,
+    traj_1 = traj_grid_draws_1,
+    coef_2 = coef_grid_draws_2,
+    weight_2 = weight_grid_draws_2,
+    traj_2 = traj_grid_draws_2,
+    x = x_seq,
+    y = y_seq
   ))
 }
-
 
 fast_mean_3d <- function(arr_3d) {
   d <- dim(arr_3d)
@@ -442,15 +612,114 @@ fast_mean_3d <- function(arr_3d) {
   return(means)
 }
 
-testSTANGrid = getGridStanHSGP(fit = fit, grid_res = 100, phySpaceBorder = c(-5,-5,5,5), M = 10, prior_logit_mean = 100, n_iters = 8000, GMM = testGMM_STAN)
+fast_quantile_3d = function(arr_3d, q){
+  d <- dim(arr_3d)
+  dim(arr_3d) <- c(d[1] * d[2], d[3])
+  qs <- apply(arr_3d, 1, FUN = quantile, q)
+  dim(qs) <- c(d[1], d[2])
+  return(qs)
+}
 
-truth = plotFullTrajectoriesHSGP(sampledHSGP, grid_res = 100, color_limits = c(0,2), GMM = sampledGMM, phySpaceBorder = c(-5,-5,5,5))
+testSTANGrid = getGridStanHSGP(fit = fit, grid_res = 100, M = 10, prior_logit_mean = 10, n_iters = 1, border = testBorder)
 
+truth = plotFullTrajectoriesHSGP(sampledHSGP, grid_res = 100, color_limits = c(0,4), border = testBorder)
+truth[[1]]$Trajectory
+grid_res = 100
 # Usage
-x_seq = testSTANGrid$x_seq
-y_seq = testSTANGrid$y_seq
-final_mean_traj1 <- matrix(rowMeans(testSTANGrid$traj_1), nrow = grid_res+1, byrow = T)
+x_seq = testSTANGrid$x
+y_seq = testSTANGrid$y
+fast_mean_3d(testSTANGrid$traj_1)
+final_mean_traj1 <- fast_mean_3d(testSTANGrid$traj_1)
+final_median_traj1 <- fast_quantile_3d(testSTANGrid$traj_1, 0.5)
+final_lower_traj1 = fast_quantile_3d(testSTANGrid$traj_1, 0.025)
+final_upper_traj1 = fast_quantile_3d(testSTANGrid$traj_1, 0.975)
+
+c_min = 0
+c_max = 4
+
+plot_ly() %>%
+
+  # # Layer 1: The Lower Bound (Floor)
+  # add_surface(x = x_seq, y = y_seq, z = final_lower_traj1,
+  #             opacity = 0.3,           # <--- Make it ghostly
+  #             colorscale = "Viridis",
+  #             cmin = c_min, cmax = c_max,
+  #             showscale = FALSE) %>%   # Hide legend for this layer
+  #
+  # # Layer 2: The Upper Bound (Ceiling)
+  # add_surface(x = x_seq, y = y_seq, z = final_upper_traj1,
+  #             opacity = 0.3,           # <--- Make it ghostly
+  #             colorscale = "Viridis",
+  #             cmin = c_min, cmax = c_max,
+  #             showscale = FALSE) %>%
+  #
+  # Layer 3: The Posterior Mean (The Core)
+  add_surface(x = x_seq, y = y_seq, z = final_mean_traj1,
+              opacity = 0.8,           # <--- Solid
+              colorscale = "Viridis",
+              cmin = c_min, cmax = c_max,
+              colorbar = list(title = "Trajectory")) %>%
+  #
+  # # Layer 4: The Truth
+  # add_surface(x = x_seq, y = y_seq, z = truth[[1]]$TrajValues,
+  #             opacity = 1.0,           # <--- Solid
+  #             colorscale = "Viridis",
+  #             cmin = c_min, cmax = c_max,
+  #             colorbar = list(title = "Trajectory")) %>%
+
+  layout(title = "Posterior Mean with 95% Credible Envelope",
+         scene = list(
+           zaxis = list(title = "Trajectory Value")
+         ))
+
 final_mean_traj2 <- matrix(rowMeans(testSTANGrid$traj_2), nrow = grid_res+1, byrow = T)
+final_lower_traj2 = matrix(apply(testSTANGrid$traj_2, 1, FUN = quantile, 0.025), nrow = grid_res+1, byrow = T)
+final_upper_traj2 = matrix(apply(testSTANGrid$traj_2, 1, FUN = quantile, 0.975), nrow = grid_res+1, byrow = T)
+
+
+
+plot_ly() %>%
+
+  # Layer 1: The Lower Bound (Floor)
+  add_surface(x = x_seq, y = y_seq, z = final_lower_traj2,
+              opacity = 0.3,           # <--- Make it ghostly
+              colorscale = "Viridis",
+              cmin = c_min, cmax = c_max,
+              showscale = FALSE) %>%   # Hide legend for this layer
+
+  # Layer 2: The Upper Bound (Ceiling)
+  add_surface(x = x_seq, y = y_seq, z = final_upper_traj2,
+              opacity = 0.3,           # <--- Make it ghostly
+              colorscale = "Viridis",
+              cmin = c_min, cmax = c_max,
+              showscale = FALSE) %>%
+
+  # # Layer 3: The Posterior Mean (The Core)
+  # add_surface(x = x_seq, y = y_seq, z = final_mean_traj2,
+  #             opacity = 0.8,           # <--- Solid
+  #             colorscale = "Viridis",
+  #             cmin = c_min, cmax = c_max,
+  #             colorbar = list(title = "Trajectory")) %>%
+
+  # Layer 4: The Truth
+  add_surface(x = x_seq, y = y_seq, z = truth[[2]]$Physical$TrajValues,
+              opacity = 1.0,           # <--- Solid
+              colorscale = "Viridis",
+              cmin = c_min, cmax = c_max,
+              colorbar = list(title = "Trajectory")) %>%
+
+  layout(title = "Posterior Mean with 95% Credible Envelope",
+         scene = list(
+           zaxis = list(title = "Trajectory Value")
+         ))
+
+
+
+
+
+
+
+
 
 plot_ly(x = x_seq, y = y_seq, z = final_mean_traj1, type = "surface", color_scale = "Viridis", cmin = 0, cmax = 2)
 truth[[1]]$Physical$Trajectory
