@@ -20,8 +20,6 @@ evaluateHSGP = function(z, k, l, M, border, curPos){
 
 }
 
-curTime = 1.1
-
 evaluateHSGP_1D = function(z, k, l, M, boundary, curTime, prior_mean){
 
   Lt = diff(boundary)
@@ -127,7 +125,7 @@ sampleFullTrajectoriesHSGP = function(N_models, M, log_k_alpha = 9, log_k_beta =
   # log_ks = rinvgamma(n = N_models, shape = log_k_alpha, scale = log_k_beta)
   # log_ls = rinvgamma(n = N_models, shape = log_l_alpha, scale = log_l_beta)
 
-  log_ks = rep(0.175, N_models)
+  log_ks = rep(0.35, N_models)
   log_ls = rep(0.2, N_models)
 
 
@@ -346,10 +344,16 @@ samplePhySpaceParticles = function(n_particles, startTime, n_obs, border, border
 }
 
 
+sampledHSGP = sampleFullTrajectoriesHSGP(2, 10)
 
+border = c(-10,-10,10,10)
 
-sampledParticles = samplePhySpaceParticles(1, startTime = 0, n_obs = 1000, border = border, borderBuffer = 0.2, baseVectorFields, sampledHSGP,
-                        M = 10, t_step_mean = 0.1, vel_sigma = 0, pos_sigma = 0.25)
+sampledHSGP_Plot = plotFullTrajectoriesHSGP(sampledHSGP, grid_res = 100, color_limits = c(0,4), border = c(-10,-10,10,10))
+
+sampledHSGP_Plot[[2]]$Coefficient
+
+sampledParticles = samplePhySpaceParticles(100, startTime = 0, n_obs = 100, border = border, borderBuffer = 0.1, baseVectorFields, sampledHSGP,
+                        M = 10, t_step_mean = 0.02, vel_sigma = 0.1, pos_sigma = 0.2)
 
 ggplot(sampledParticles, aes(x = X1, y = X2, color = Particle)) + geom_point()
 ggplot(sampledParticles[abs(sampledParticles$X1)<=5 & abs(sampledParticles$X2)<=5, ], aes(x = X1, y = X2, color = Particle)) + geom_point()
@@ -371,3 +375,5 @@ testData_V = t(apply(testData[,2:3], MARGIN = 1, FUN = TrajWeightedBaseVectorFie
 plot(testData_V)
 
 testDataFull = cbind(testData, testData_V)
+
+ggplot(stan_data$Data, aes(x = X1, y = X2)) + geom_point()

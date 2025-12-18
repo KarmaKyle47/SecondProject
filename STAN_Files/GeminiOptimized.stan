@@ -17,38 +17,6 @@ functions {
     return (phi_x' * beta * phi_y);
   }
 
-  // 1D Path Evaluator (Time -> Position)
-  real evaluate_HSGP_Path(real t, int M, vector beta, real prior_mean, vector omega,
-                     real Lt, data vector boundary) {
-    vector[M+1] phi;
-    phi[1] = 1.0;
-    phi[2:(M+1)] = sqrt(2) * cos(omega[2:(M+1)] * (t - boundary[1]) / Lt);
-
-    return dot_product(beta, phi) + prior_mean;
-  }
-
-  vector evaluate_HSGP_Path_Vectorized(vector t, int M, vector beta, real prior_mean,
-                                       vector omega, real Lt, vector boundary) {
-    int N = num_elements(t);
-
-    // 1. Normalize Time [0, 1]
-    vector[N] t_norm = (t - boundary[1]) / Lt;
-
-    // 2. Build Basis Matrix for n=1..M
-    // We skip n=0 because it's just the intercept
-    row_vector[M] w_row = to_row_vector(omega[2:(M+1)]); // Row vector [1 x M]
-
-    // Outer Product: (N x 1) * (1 x M) -> (N x M)
-    matrix[N, M] PHI = sqrt(2) * cos(t_norm * w_row);
-
-    // 3. Project
-    // beta[1] is the coefficient for phi_0(t)=1
-    // beta[2:M+1] are coefficients for the cosine waves
-    vector[N] waves = PHI * beta[2:(M+1)];
-
-    return waves + beta[1] + prior_mean;
-  }
-
   vector predict_path(matrix PHI, vector beta, real prior_mean) {
     // PHI is pre-computed [N x M]
     // beta[2:M+1] corresponds to the waves
@@ -117,6 +85,66 @@ functions {
     // Scale by dt/Lt (Riemann Sum Normalization)
     return proj' * (delta_t / Lt); // Returns [M x 2]
   }
+
+  // --- PARALLEL LIKELIHOOD FUNCTION ---
+  real partial_sum_likelihood(
+      array[] int slice_drifters, // The chunk of drifter indices (e.g., 1..5)
+      int start, int end,         // Stan internal indices
+      // --- Parameters ---
+      array[] matrix drifter_betas,
+      array[] matrix drifter_betas_der,
+      array[] matrix log_betas,
+      real sigma_vel,
+      real sigma_pos,
+      // --- Data ---
+      matrix Data,
+      matrix PHI_Data,
+      array[] matrix PHI_MeanEst,
+      array[] matrix sin_bs,
+      matrix drifter_t_grids,
+      array[] int obs_per_drifter,
+      array[] int start_indices,    // Pre-computed index map
+      matrix drifter_prior_means,
+      matrix drifter_boundaries,
+      vector delta_ts,
+      vector Lts,
+      // --- Geometry/Constants ---
+      real Lx, real Ly, vector border,
+      int M_Surface, int M_Drifter, int N_models,
+      vector omega_drifter, vector omega_surface, int t_res
+  ) {
+      real lp = 0;
+
+      // Loop over the drifters in this specific chunk
+      for (i in 1:size(slice_drifters)) {
+          int d = slice_drifters[i]; // Get the actual Drifter ID
+
+          // --- 1. Physics Likelihood ---
+          matrix[M_Drifter, 2] c_hat = getMeanCoefsEst(
+              log_betas, drifter_betas[d], Lx, Ly, border, Lts[d],
+              M_Surface, M_Drifter, drifter_prior_means[d]', omega_drifter, omega_surface, N_models,
+              drifter_t_grids[d,]', delta_ts[d], PHI_MeanEst[d], sin_bs[d], t_res
+          );
+
+          // Accumulate Physics Log-Prob
+          lp += normal_lpdf(to_vector(drifter_betas_der[d]) | to_vector(c_hat), sigma_vel / sqrt(Lts[d]));
+
+          // --- 2. Observation Likelihood ---
+          int cur_N = obs_per_drifter[d];
+          int s_idx = start_indices[d]; // O(1) Lookup instead of loop
+
+          // Slice Data and Basis for this drifter
+          // Note: using block() or slicing syntax is fast in Stan
+          vector[cur_N] x_pred = predict_path(PHI_Data[s_idx : s_idx + cur_N - 1, ], col(drifter_betas[d], 1), drifter_prior_means[d,1]);
+          vector[cur_N] y_pred = predict_path(PHI_Data[s_idx : s_idx + cur_N - 1, ], col(drifter_betas[d], 2), drifter_prior_means[d,2]);
+
+          lp += normal_lpdf(Data[s_idx : s_idx + cur_N - 1, 2] | x_pred, sigma_pos);
+          lp += normal_lpdf(Data[s_idx : s_idx + cur_N - 1, 3] | y_pred, sigma_pos);
+      }
+      return lp;
+  }
+
+
 }
 
 data {
@@ -183,8 +211,20 @@ transformed data {
 
   }
 
-  real sigma_vel_alpha = 4; real sigma_vel_beta = 1;
-  real sigma_pos_alpha = 10; real sigma_pos_beta = 1;
+  array[N_drifters] int start_indices;
+  int current_idx = 1;
+  for(i in 1:N_drifters) {
+      start_indices[i] = current_idx;
+      current_idx += obs_per_drifter[i];
+  }
+
+  // We create a sequence 1, 2, ... N_drifters
+  array[N_drifters] int seq_drifters;
+  for(i in 1:N_drifters) seq_drifters[i] = i;
+
+  // Grainsize: 1 implies "split as finely as possible" (good for heavy per-item cost)
+  int grainsize = 1;
+
 }
 
 parameters {
@@ -201,34 +241,28 @@ parameters {
 transformed parameters {
   array[N_models] matrix[M_Surface+1, M_Surface+1] log_betas;
   array[N_drifters] matrix[M_Drifter+1, 2] drifter_betas;
+  array[N_drifters] matrix[M_Drifter, 2] drifter_betas_der;
 
   // 1. Surface Spectral Scaling
   for(i in 1:N_models){
-      vector[M_Surface+1] sqrt_spd = sqrt(sqrt(2*pi()) * log_ls[i] * exp(-0.5 * square(log_ls[i] * omega_surface)));
-      log_betas[i] = log_ks[i] * diag_post_multiply(diag_pre_multiply(sqrt_spd, log_zs[i]), sqrt_spd);
+    vector[M_Surface+1] sqrt_spd = sqrt(sqrt(2*pi()) * log_ls[i] * exp(-0.5 * square(log_ls[i] * omega_surface)));
+    log_betas[i] = log_ks[i] * diag_post_multiply(diag_pre_multiply(sqrt_spd, log_zs[i]), sqrt_spd);
   }
 
   // 2. Drifter Path Spectral Scaling
   for(i in 1:N_drifters){
-      // Independent X and Y scaling
-      vector[M_Drifter+1] spd_x = sqrt(sqrt(2*pi()) * drifter_ls[i,1] * exp(-0.5 * square(drifter_ls[i,1] * omega_drifter)));
-      vector[M_Drifter+1] spd_y = sqrt(sqrt(2*pi()) * drifter_ls[i,2] * exp(-0.5 * square(drifter_ls[i,2] * omega_drifter)));
-
-      // Access columns of the matrix inside the array
-      drifter_betas[i][:,1] = drifter_ks[i,1] * spd_x .* drifter_zs[i][:,1];
-      drifter_betas[i][:,2] = drifter_ks[i,2] * spd_y .* drifter_zs[i][:,2];
-  }
-
-  array[N_drifters] matrix[M_Drifter, 2] drifter_betas_der;
-  for(i in 1:N_drifters){
+    // Independent X and Y scaling
+    vector[M_Drifter+1] spd_x = sqrt(sqrt(2*pi()) * drifter_ls[i,1] * exp(-0.5 * square(drifter_ls[i,1] * omega_drifter)));
+    vector[M_Drifter+1] spd_y = sqrt(sqrt(2*pi()) * drifter_ls[i,2] * exp(-0.5 * square(drifter_ls[i,2] * omega_drifter)));
 
     // Access columns of the matrix inside the array
+    drifter_betas[i][:,1] = drifter_ks[i,1] * spd_x .* drifter_zs[i][:,1];
+    drifter_betas[i][:,2] = drifter_ks[i,2] * spd_y .* drifter_zs[i][:,2];
+
     drifter_betas_der[i][,1] = drifter_betas[i][2:(M_Drifter+1), 1] .* omega_drifter[2:(M_Drifter+1)] * (-1.0/Lts[i]);
     drifter_betas_der[i][,2] = drifter_betas[i][2:(M_Drifter+1), 2] .* omega_drifter[2:(M_Drifter+1)] * (-1.0/Lts[i]);
   }
 
-
-  real sigma2_pos = sigma_pos*sigma_pos;
 }
 
 model {
@@ -236,48 +270,25 @@ model {
 
   // Use to_vector to flatten matrices for efficient sampling
   for(k in 1:N_models) to_vector(log_zs[k]) ~ std_normal();
-
-  // Corrected Drifter Priors
-
-  sigma_vel ~ inv_gamma(sigma_vel_alpha, sigma_vel_beta);
-  sigma_pos ~ inv_gamma(sigma_pos_alpha, sigma_pos_beta);
-
   for(i in 1:N_drifters) to_vector(drifter_zs[i]) ~ std_normal();
 
-  // --- Collocation Likelihood (Physics Link) ---
+  // Corrected Drifter Priors
+  sigma_vel ~ std_normal();
+  sigma_pos ~ std_normal();
 
-  for(i in 1:N_drifters){
+    // --- PARALLEL LIKELIHOOD ---
 
-    // A. Get Target Coefficients from Vector Field (Physics)
-    // Returns [M x 2] matrix for indices n=1..M
-    matrix[M_Drifter, 2] c_hat = getMeanCoefsEst(log_betas, drifter_betas[i], Lx, Ly, border, Lts[i],
-                                                  M_Surface, M_Drifter, drifter_prior_means[i]', omega_drifter, omega_surface, N_models,
-                                                  drifter_t_grids[i,]', delta_ts[i], PHI_MeanEst[i], sin_bs[i], t_res);
+  target += reduce_sum(
+      partial_sum_likelihood, seq_drifters, grainsize,
+      // Pass Parameters
+      drifter_betas, drifter_betas_der, log_betas, sigma_vel, sigma_pos,
+      // Pass Data
+      Data, PHI_Data, PHI_MeanEst, sin_bs, drifter_t_grids,
+      obs_per_drifter, start_indices, drifter_prior_means, drifter_boundaries,
+      delta_ts, Lts,
+      // Pass Constants
+      Lx, Ly, border, M_Surface, M_Drifter, N_models,
+      omega_drifter, omega_surface, t_res
+  );
 
-    // C. The Physics Mismatch Penalty
-    // We treat the Physics Prediction (c_hat) as the "Mean" and the Path Derivative as the "Observation"
-    // Variance is scaled by 1/Lt because it's an integral norm
-    to_vector(drifter_betas_der[i]) ~ normal(to_vector(c_hat), sigma_vel / sqrt(Lts[i]));
-    // Note: sigma_vel is SD. If using variance in normal(), check parameterization. Stan uses SD.
-  }
-
-  // --- Observation Likelihood (Data Link) ---
-
-  int start_index = 1;
-  for(i in 1:N_drifters){
-    int cur_N_obs = obs_per_drifter[i];
-    int end_index = start_index + cur_N_obs - 1;
-
-    matrix[cur_N_obs, 3] curData = Data[start_index:end_index,];
-  // 1. Extract Time Vector for this drifter
-
-    // 2. Evaluate X and Y paths in one shot
-    vector[cur_N_obs] x_pos_pred = predict_path(PHI_Data[start_index:end_index,], drifter_betas[i][,1], drifter_prior_means[i,1]);
-    vector[cur_N_obs] y_pos_pred = predict_path(PHI_Data[start_index:end_index,], drifter_betas[i][,2], drifter_prior_means[i,2]);
-
-    // 3. Likelihood
-    curData[, 2] ~ normal(x_pos_pred, sigma_pos);
-    curData[, 3] ~ normal(y_pos_pred, sigma_pos);
-    start_index += cur_N_obs;
-  }
 }
