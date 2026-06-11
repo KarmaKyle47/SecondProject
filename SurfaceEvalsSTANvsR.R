@@ -84,7 +84,7 @@ rand_res = 100
 sim_data = samplePhySpaceParticles(16, startTime = 0, n_obs = 100*rand_res, border = c(-10,-10,10,10), borderBuffer = 0.2, baseVectorFields, sampledHSGP,
                                               M = M, t_step_mean = 0.01, vel_sigma = 0, pos_sigma = 0)
 
-sim_data_sub = sim_data[1:1600 * rand_res - (rand_res-1),]
+sim_data_sub = sim_data[1:3200 * 50 - (50-1),]
 
 sim_vels = apply(sim_data_sub[,c(1,2,3)], MARGIN = 1, FUN = function(row){TrajWeightedBaseVectorFields_HSGP(row[1], row[-1], baseVectorFields, sampledHSGP, M = 10, border = c(-10,-10,10,10))})
 

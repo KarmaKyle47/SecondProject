@@ -1,6 +1,7 @@
 source('SecondProjectRequiredFunctions.R')
 options(mc.cores = parallel::detectCores())
 max_cores = parallel::detectCores()
+library(splines2)
 
 
 baseVectorFields = function(t, curPos){
@@ -13,18 +14,57 @@ baseVectorFields = function(t, curPos){
 
 }
 
+baseVectorFields = function(t, curPos){
+
+  f1 = c(1,0)
+  f2 = c(0,1)
+  matrix(c(f1,f2), nrow = 2, byrow = F)
+
+}
+
+baseVectorFields = function(t, curPos) {
+  x = curPos[1]
+  y = curPos[2]
+
+  # 1. Original window function
+  window = cos(pi * x / 20) * cos(pi * y / 20)
+
+  # 2. Original base fields (multiplied by window)
+  f1 = c(y, -1 * x) * window
+  f2 = c(x, y) * sin(t / 8) * window
+
+  # 3. Boundary Repulsion Setup
+  boundary_limit = 10  # Matches the zeroes of your cosine function
+  k = 0.1             # Repulsion strength (tune this!)
+  eps = 0.01           # Small buffer to prevent division by zero
+
+  # Inverse square repulsion:
+  # As 'x' approaches 'boundary_limit', the second term explodes negatively (pushes left).
+  # As 'x' approaches '-boundary_limit', the first term explodes positively (pushes right).
+  repel_x = k * (1 / (x + boundary_limit + eps)^2 - 1 / (boundary_limit - x + eps)^2)
+  repel_y = k * (1 / (y + boundary_limit + eps)^2 - 1 / (boundary_limit - y + eps)^2)
+
+  repulsion = c(repel_x, repel_y)
+
+  # 4. Add the repulsion to your fields (outside the window multiplier)
+  f1 = f1 + repulsion
+  f2 = f2 + repulsion
+
+  matrix(c(f1, f2), nrow = 2, byrow = FALSE)
+}
+
 true_log_k = 0.35
-true_log_l = 0.05
-M = 10
+true_log_l = 1
+M = 4
 
 sampledHSGP = sampleFullTrajectoriesHSGP(2, M, true_log_k, true_log_l)
 
 rand_res = 100
 
-sampledParticles_V2 = samplePhySpaceParticles(100, startTime = 0, n_obs = 100*rand_res, border = c(-10,-10,10,10), borderBuffer = 0.2, baseVectorFields, sampledHSGP,
-                                           M = M, t_step_mean = 0.01, vel_sigma = 0, pos_sigma = 0)
+sampledParticles_V2 = samplePhySpaceParticles(10, startTime = 0, n_obs = 100*rand_res, border = c(-10,-10,10,10), borderBuffer = 0.2, baseVectorFields, sampledHSGP,
+                                              M = M, t_step_mean = 0.01, vel_sigma = 0, pos_sigma = 0)
 
-sampledParticles_Sub = sampledParticles[1:10000 * rand_res - (rand_res-1),]
+sampledParticles_Sub = sampledParticles_V2[1:1000 * rand_res - (rand_res-1),]
 
 sampledParticles_Sub = sampledParticles_Sub[sampledParticles_Sub$X1 >= -10 & sampledParticles_Sub$X1 <= 10 &
                                               sampledParticles_Sub$X2 >= -10 & sampledParticles_Sub$X2 <= 10,]
@@ -49,14 +89,17 @@ N_quad = 1000
 
 D = length(drifter_names)
 N = drifter_num_points
-M_drifter = 20
-K = N+M_drifter
+K_drifter = 100
 
-c_part_x_list = list()
-c_part_y_list = list()
-Z_flat_full_list = list()
+p_x_base = list()
+p_y_base = list()
+v_x_base = list()
+v_y_base = list()
+
 Phi_List = list()
 Phi_d_List = list()
+Phi_data_List = list()
+
 t_grid_list = list()
 Lts = rep(0,D)
 drifter_boundaries = matrix(nrow = D, ncol = 2)
@@ -66,28 +109,19 @@ for(d in 1:D){
   curDrifter = sampledParticles_Sub[sampledParticles_Sub$Particle == drifter_names[d],]
   cur_boundary = c(min(curDrifter$t),max(curDrifter$t))
   cur_quad_grid = seq(cur_boundary[1], cur_boundary[2], length.out = N_quad)
-  cur_K = K[d]
 
-  cur_P = cos(outer((curDrifter$t - cur_boundary[1])/diff(cur_boundary), pi * (1:cur_K - 1)))
+  cur_x_spline = splinefun(x = curDrifter$t, y = curDrifter$X1, method = 'fmm')
+  p_x_base[[d]] = cur_x_spline(cur_quad_grid)
+  v_x_base[[d]] = cur_x_spline(cur_quad_grid, deriv = 1)
 
-  cur_Z = Null(t(cur_P))[,1:M_drifter]
+  cur_y_spline = splinefun(x = curDrifter$t, y = curDrifter$X2, method = 'fmm')
+  p_y_base[[d]] = cur_y_spline(cur_quad_grid)
+  v_y_base[[d]] = cur_y_spline(cur_quad_grid, deriv = 1)
 
-  cur_Phi = cos(outer((cur_quad_grid - cur_boundary[1])/diff(cur_boundary), pi * (1:cur_K - 1)))
-  cur_Phi_d = sin(outer((cur_quad_grid - cur_boundary[1])/diff(cur_boundary), pi * (1:cur_K - 1))) * outer(rep(1, N_quad), -1*(pi*(1:cur_K - 1)/diff(cur_boundary)))
+  Phi_List[[d]] = bSpline(x = cur_quad_grid, df = K_drifter, intercept = F)
+  Phi_d_List[[d]] = bSpline(x = cur_quad_grid, df = K_drifter, intercept = F, derivs = 1)
 
-  LI_x = spline(x = curDrifter$t, y = curDrifter$X1, xout = cur_quad_grid)$y
-  LI_y = spline(x = curDrifter$t, y = curDrifter$X2, xout = cur_quad_grid)$y
-
-  cur_c_part_x = solve(t(cur_Phi) %*% cur_Phi) %*% t(cur_Phi) %*% LI_x
-  cur_c_part_y = solve(t(cur_Phi) %*% cur_Phi) %*% t(cur_Phi) %*% LI_y
-
-  c_part_x_list[[d]] = cur_c_part_x
-  c_part_y_list[[d]] = cur_c_part_y
-
-  Z_flat_full_list[[d]] = c(cur_Z)
-
-  Phi_List[[d]] = cur_Phi
-  Phi_d_List[[d]] = cur_Phi_d
+  Phi_data_List[[d]] = bSpline(x = curDrifter$t, df = K_drifter, intercept = F)
 
   t_grid_list[[d]] = cur_quad_grid
   Lts[d] = diff(cur_boundary)
@@ -102,20 +136,20 @@ plotPriorDrifter = function(d){
 
   curDrifter = sampledParticles_Sub[sampledParticles_Sub$Particle == drifter_names[d],]
 
-  prior_pos_x = as.numeric(Phi_List[[d]] %*% c_part_x_list[[d]])
-  prior_pos_y = as.numeric(Phi_List[[d]] %*% c_part_y_list[[d]])
+  prior_pos_x = p_x_base[[d]]
+  prior_pos_y = p_y_base[[d]]
 
   ggplot() + geom_line(aes(x = t_grid_list[[d]], y = prior_pos_x), color = 'blue') +
              geom_point(data = curDrifter, aes(x = t, y = X1), color = 'black', size = 1)
 
-  ggplot() + geom_line(aes(x = t_grid_list[[d]], y = prior_pos_y), color = 'blue') +
-             geom_point(data = curDrifter, aes(x = t, y = X2), color = 'black', size = 0.1)
-
+  # ggplot() + geom_line(aes(x = t_grid_list[[d]], y = prior_pos_y), color = 'blue') +
+  #            geom_point(data = curDrifter, aes(x = t, y = X2), color = 'black', size = 0.1)
+  #
   ggplot() + geom_path(aes(x = prior_pos_x, y = prior_pos_y), color = 'blue') +
     geom_point(data = curDrifter, aes(x = X1, y = X2), color = 'black', size = 1)
 }
 
-plotPriorDrifter(1)
+plotPriorDrifter(2)
 
 unlist(lapply(Z_flat_full_list, length)) == K*M_drifter
 length(Z_flat_full_list[[1]])
@@ -127,18 +161,25 @@ full_data = list(
   D = D,
   N_quad = N_quad,
 
-  M = rep(M_drifter, D),
-  total_M = M_drifter*D,
+  K = rep(K_drifter, D),
+  total_K = K_drifter*D,
 
-  K = K,
-  total_K = sum(K),
-  total_Z = sum(K*M_drifter),
+  N_drifter = drifter_num_points,
+  total_data = sum(drifter_num_points),
 
-  c_part_x_flat = unlist(c_part_x_list),
-  c_part_y_flat = unlist(c_part_y_list),
+  total_Z = sum(K_drifter*drifter_num_points),
+
+  p_x_base = p_x_base,
+  p_y_base = p_y_base,
+  v_x_base = v_x_base,
+  v_y_base = v_y_base,
+
+  Phi_flat = do.call(cbind, Phi_List),
+  Phi_d_flat = do.call(cbind, Phi_d_List),
+
+  Phi_data_elements = unlist(Phi_data_List),
 
   drifter_boundaries = drifter_boundaries,
-  drifter_times = sampledParticles_Sub$t,
 
   N_models = 2,
   M_Surface = 5,
@@ -167,30 +208,38 @@ full_data = list(
 
 )
 
-new_interpolator_model = cmdstan_model('NewInterpolationModel.stan', cpp_options = list(stan_threads = T))
+spline_interpolator_model = cmdstan_model('BaseSplineInterpolationModel.stan', cpp_options = list(stan_threads = T), force_recompile = T)
 
-full_fit = new_interpolator_model$variational(
+spline_fit = spline_interpolator_model$variational(
   data = full_data,
   threads = max_cores/4,
   iter = 10000,
   draws = 1000, show_messages = T, init = 0#, algorithm = "fullrank"
 )
 
-PF_sum = pure_fit$summary()
+PF_sum = spline_fit$summary()
 
 PF_sum[PF_sum$variable == 'fixed_ls',]
 
-surface_beta_draws = full_fit$draws('surface_betas')
-w_x_draws = full_fit$draws('w_x')
-w_y_draws = full_fit$draws('w_y')
-sigma_vel_draws = full_fit$draws('sigma_vel')
+surface_beta_draws = spline_fit$draws('surface_betas')
+w_x_draws = spline_fit$draws('w_x')
+w_y_draws = spline_fit$draws('w_y')
+sigma_mag_draws = spline_fit$draws('sigma_mag')
+sigma_angle_draws = spline_fit$draws('sigma_angle')
+sigma_pos_draws = spline_fit$draws('sigma_pos')
+rho_mag_draws = spline_fit$draws('rho_mag')
+rho_angle_draws = spline_fit$draws('rho_angle')
+
+hist(rho_angle_draws)
 
 c(full_fit$draws('post_vel_mse'))
 c(full_fit$draws('prior_vel_mse'))
 
 save(sampledHSGP, sampledParticles_Sub,
      surface_beta_draws, w_x_draws, w_y_draws, sigma_vel_draws,
-     file = '/home/kdp2abu/NewInterpolatorVI_1.RData')
+     file = 'UpdatedModelwL5_28.RData')
+
+load('UpdatedModelwL5_28.RData')
 
 
 hist(sigma_vel_draws)
@@ -329,56 +378,55 @@ plotPostDrifter = function(d){
 
   curDrifter = sampledParticles_Sub[sampledParticles_Sub$Particle == drifter_names[d],]
 
-  post_draws_coef_x = matrix(rep(as.numeric(c_part_x_list[[d]]), 1000), nrow = 1000, ncol = K[d], byrow = T) + w_x_draws[,1:M_drifter + (d-1)*M_drifter] %*% t(matrix(Z_flat_full_list_STAN[[d]], ncol = M_drifter, byrow = F))
-  post_draws_coef_y = matrix(rep(as.numeric(c_part_y_list[[d]]), 1000), nrow = 1000, ncol = K[d], byrow = T) + w_y_draws[,1:M_drifter + (d-1)*M_drifter] %*% t(matrix(Z_flat_full_list_STAN[[d]], ncol = M_drifter, byrow = F))
+  post_draws_pos_x = w_x_draws[,1:K_drifter + (d-1)*K_drifter] %*% t(Phi_List[[d]])
+  post_draws_pos_y = w_y_draws[,1:K_drifter + (d-1)*K_drifter] %*% t(Phi_List[[d]])
 
-  post_draws_pos_x = post_draws_coef_x %*% t(Phi_List[[d]])
-  post_draws_pos_y = post_draws_coef_y %*% t(Phi_List[[d]])
+  post_mean_path_x = p_x_base[[d]] + as.numeric(colMeans(post_draws_pos_x))
+  post_mean_path_y = p_y_base[[d]] + as.numeric(colMeans(post_draws_pos_y))
 
-  post_mean_path_x = as.numeric(colMeans(post_draws_pos_x))
-  post_mean_path_y = as.numeric(colMeans(post_draws_pos_y))
+  post_lower_path_x = p_x_base[[d]] + as.numeric(apply(post_draws_pos_x, MARGIN = 2, FUN = quantile, p = 0.025))
+  post_lower_path_y = p_y_base[[d]] + as.numeric(apply(post_draws_pos_y, MARGIN = 2, FUN = quantile, p = 0.025))
 
-  post_lower_path_x = as.numeric(apply(post_draws_pos_x, MARGIN = 2, FUN = quantile, p = 0.025))
-  post_lower_path_y = as.numeric(apply(post_draws_pos_y, MARGIN = 2, FUN = quantile, p = 0.025))
-
-  post_upper_path_x = as.numeric(apply(post_draws_pos_x, MARGIN = 2, FUN = quantile, p = 0.975))
-  post_upper_path_y = as.numeric(apply(post_draws_pos_y, MARGIN = 2, FUN = quantile, p = 0.975))
+  post_upper_path_x = p_x_base[[d]] + as.numeric(apply(post_draws_pos_x, MARGIN = 2, FUN = quantile, p = 0.975))
+  post_upper_path_y = p_y_base[[d]] + as.numeric(apply(post_draws_pos_y, MARGIN = 2, FUN = quantile, p = 0.975))
 
   ggplot() + geom_line(aes(x = t_grid_list[[d]], y = post_mean_path_x), color = 'blue') +
-             geom_point(data = curDrifter, aes(x = t, y = X1), color = 'black', size = 0.1)
+    geom_line(aes(x = t_grid_list[[d]], y = post_lower_path_x), color = 'red', alpha = 0.2) +
+    geom_line(aes(x = t_grid_list[[d]], y = post_upper_path_x), color = 'red', alpha = 0.2) +
+             geom_point(data = curDrifter, aes(x = t, y = X1), color = 'black', size = 1)
 
-  ggplot() + geom_line(aes(x = t_grid_list[[d]], y = post_mean_path_y), color = 'blue') +
-             geom_point(data = curDrifter, aes(x = t, y = X2), color = 'black', size = 0.1)
 
-  ggplot() + geom_path(aes(x = post_mean_path_x, y = post_mean_path_y), color = 'blue') +
+  # ggplot() + geom_line(aes(x = t_grid_list[[d]], y = post_mean_path_y), color = 'blue') +
+  #            geom_point(data = curDrifter, aes(x = t, y = X2), color = 'black', size = 0.1)
+  #
+  ggplot() + geom_path(aes(x = as.numeric(post_mean_path_x), y = as.numeric(post_mean_path_y)), color = 'blue') +
     geom_point(data = curDrifter, aes(x = X1, y = X2), color = 'black', size = 1)
 
 }
 
-plotPriorDrifter(4)
-plotPostDrifter(4)
+plotPriorDrifter(1)
+plotPostDrifter(1)
 d=1
 
-save(list = ls(all.names = TRUE), file = "April30NewInterpolationTesting.RData")
+save(list = ls(all.names = TRUE), file = "June4SplineInterpolationTesting_FirstMagAngle_wAR1.RData")
 d=1
+load("May31SplineInterpolationTesting.RData")
+
 checkDrifterVel = function(d){
 
   curDrifter = sampledParticles_Sub[sampledParticles_Sub$Particle == drifter_names[d],]
 
-  post_draws_coef_x = matrix(rep(as.numeric(c_part_x_list[[d]]), 1000), nrow = 1000, ncol = K[d], byrow = T) + w_x_draws[,1:M_drifter + (d-1)*M_drifter] %*% t(matrix(Z_flat_full_list_STAN[[d]], ncol = M_drifter, byrow = F))
-  post_draws_coef_y = matrix(rep(as.numeric(c_part_y_list[[d]]), 1000), nrow = 1000, ncol = K[d], byrow = T) + w_y_draws[,1:M_drifter + (d-1)*M_drifter] %*% t(matrix(Z_flat_full_list_STAN[[d]], ncol = M_drifter, byrow = F))
+  post_draws_pos_x = w_x_draws[,1:K_drifter + (d-1)*K_drifter] %*% t(Phi_List[[d]])
+  post_draws_pos_y = w_y_draws[,1:K_drifter + (d-1)*K_drifter] %*% t(Phi_List[[d]])
 
-  post_draws_pos_x = post_draws_coef_x %*% t(Phi_List[[d]])
-  post_draws_pos_y = post_draws_coef_y %*% t(Phi_List[[d]])
+  post_draws_vel_x = w_x_draws[,1:K_drifter + (d-1)*K_drifter] %*% t(Phi_d_List[[d]])
+  post_draws_vel_y = w_y_draws[,1:K_drifter + (d-1)*K_drifter] %*% t(Phi_d_List[[d]])
 
-  post_mean_pos_x = as.numeric(colMeans(post_draws_pos_x))
-  post_mean_pos_y = as.numeric(colMeans(post_draws_pos_y))
+  post_mean_pos_x = p_x_base[[d]] + as.numeric(colMeans(post_draws_pos_x))
+  post_mean_pos_y = p_y_base[[d]] + as.numeric(colMeans(post_draws_pos_y))
 
-  post_draws_vel_x = post_draws_coef_x %*% t(Phi_d_List[[d]])
-  post_draws_vel_y = post_draws_coef_y %*% t(Phi_d_List[[d]])
-
-  post_mean_vel_x = as.numeric(colMeans(post_draws_vel_x))
-  post_mean_vel_y = as.numeric(colMeans(post_draws_vel_y))
+  post_mean_vel_x = v_x_base[[d]] + as.numeric(colMeans(post_draws_vel_x))
+  post_mean_vel_y = v_y_base[[d]] + as.numeric(colMeans(post_draws_vel_y))
 
   post_mean_pos_mat = matrix(c(post_mean_pos_x, post_mean_pos_y), nrow = 1000, byrow = F)
 
@@ -405,11 +453,11 @@ checkDrifterVel = function(d){
 
   #### Base Path
 
-  prior_pos_x = as.numeric(Phi_List[[d]] %*% c_part_x_list[[d]])
-  prior_pos_y = as.numeric(Phi_List[[d]] %*% c_part_y_list[[d]])
+  prior_pos_x = p_x_base[[d]]
+  prior_pos_y = p_y_base[[d]]
 
-  prior_vel_x = as.numeric(Phi_d_List[[d]] %*% c_part_x_list[[d]])
-  prior_vel_y = as.numeric(Phi_d_List[[d]] %*% c_part_y_list[[d]])
+  prior_vel_x = v_x_base[[d]]
+  prior_vel_y = v_y_base[[d]]
 
   prior_eval_points = matrix(c(quad_grid, prior_pos_x, prior_pos_y), nrow = N_quad, byrow = F)
 
@@ -428,7 +476,7 @@ checkDrifterVel = function(d){
 
 checkDrifterVel(1)
 
-checkPriorPost = matrix(ncol = 2, nrow = 16)
+checkPriorPost = matrix(ncol = 2, nrow = D)
 
 for(d in 1:D){
 
@@ -443,6 +491,8 @@ median((checkPriorPost[,2] - checkPriorPost[,1])/checkPriorPost[,2] * 100)
 
 plot(checkPriorPost)
 abline(a = 0, b = 1)
+
+mean(checkPriorPost[,2] > checkPriorPost[,1])
 
 colMeans(checkPriorPost)
 
@@ -643,3 +693,255 @@ STAN_VFs_M1_x = STAN_VFs[1:5000 * 2 - 1]
 R_VFs_M1_x = R_VFs[1,]
 
 (STAN_VFs_M1_x - R_VFs_M1_x)
+
+
+
+
+#Super Simple 1 to 1 model
+
+log_coef1 = rnorm(1,0,0.35)
+log_coef2 = rnorm(1,0,0.35)
+
+N_drifter = 100
+K_drifter = 5
+
+start_pos_x = runif(N_drifter, min = -10, max = 10)
+start_pos_y = runif(N_drifter, min = -10, max = 10)
+
+sigma_vel = 0.1
+
+w_x_matrix = matrix(rnorm(n = N_drifter*K_drifter,0,sigma_vel), nrow = K_drifter)
+w_y_matrix = matrix(rnorm(n = N_drifter*K_drifter,0,sigma_vel), nrow = K_drifter)
+
+t_start = 0
+t_end = 10
+t_res = 100
+t_grid_data = seq(t_start,t_end,length.out = t_res)
+
+p_x_base = exp(log_coef1) * t_grid_data
+p_y_base = exp(log_coef2) * t_grid_data
+
+p_x_base_mat = matrix(nrow = t_res, ncol = N_drifter)
+p_y_base_mat = matrix(nrow = t_res, ncol = N_drifter)
+
+for(d in 1:N_drifter){
+
+  p_x_base_mat[,d] = p_x_base + start_pos_x[d]
+  p_y_base_mat[,d] = p_y_base + start_pos_y[d]
+
+
+}
+
+# Phi_data = bSpline(x = t_grid_data, df = K_drifter, intercept = F)
+#
+p_x_mat = p_x_base_mat# + Phi_data %*% w_x_matrix
+p_y_mat = p_y_base_mat# + Phi_data %*% w_y_matrix
+
+sigma_pos = 0.1
+
+p_x_mat_data = p_x_mat + matrix(rnorm(N_drifter*t_res, 0, sigma_pos), nrow = t_res)
+p_y_mat_data = p_y_mat + matrix(rnorm(N_drifter*t_res, 0, sigma_pos), nrow = t_res)
+
+
+Data = data.frame(t = rep(t_grid_data, N_drifter), x = c(p_x_mat_data), y = c(p_y_mat_data),
+                  Particle = rep(str_c("Particle",1:N_drifter), each = t_res))
+
+ggplot(Data, aes(x = x, y = y, color = Particle)) + geom_point() + theme(legend.position = "none")
+
+
+data_stan = list(
+  D = N_drifter,
+  K = K_drifter,
+  N_drifter = t_res,
+
+  t_grid_data = t_grid_data,
+  x_pos = p_x_mat_data,
+  y_pos = p_y_mat_data
+)
+
+simple_interpolator_model = cmdstan_model('SuperSimpleBaseSplineInterpolator.stan')
+line_simple_model = cmdstan_model('StraightLineSimple.stan')
+
+
+simple_fit = simple_interpolator_model$variational(
+  data = data_stan,
+  iter = 100000,
+  draws = 10000, show_messages = T, init = 0#, algorithm = "fullrank"
+)
+
+straight_fit_VI = line_simple_model$variational(
+  data = data_stan,
+  iter = 100000,
+  draws = 10000, show_messages = T, init = 0#, algorithm = "fullrank"
+)
+
+straight_fit_HMC = straight_fit
+
+straight_fit = line_simple_model$sample(
+  data = data_stan,
+  chains = 4,
+  parallel_chains = 4,
+  refresh = 10
+)
+
+simple_fit = simple_interpolator_model$sample(
+  data = data_stan,
+  chains = 4,
+  parallel_chains = 4,
+  refresh = 10
+)
+
+SF_sum = simple_fit$summary()
+
+SF_sum$rhat
+
+sigma_pos_draws = simple_fit$draws('sigma_pos')
+sigma_pos_mean = mean(sigma_pos_draws)
+sigma_pos_lower = as.numeric(quantile(sigma_pos_draws,0.025))
+sigma_pos_upper = as.numeric(quantile(sigma_pos_draws,0.975))
+
+sigma_pos_mean - sigma_pos
+sigma_pos_lower <= sigma_pos & sigma_pos_upper >= sigma_pos
+
+sigma_vel_draws = simple_fit$draws('sigma_vel')
+sigma_vel_mean = mean(sigma_vel_draws)
+sigma_vel_lower = as.numeric(quantile(sigma_vel_draws,0.025))
+sigma_vel_upper = as.numeric(quantile(sigma_vel_draws,0.975))
+
+sigma_vel_mean - sigma_vel
+sigma_vel_lower <= sigma_vel & sigma_vel_upper >= sigma_vel
+
+log_coef1_draws = simple_fit$draws('logcoef1')
+log_coef1_mean = mean(log_coef1_draws)
+log_coef1_lower = as.numeric(quantile(log_coef1_draws,0.025))
+log_coef1_upper = as.numeric(quantile(log_coef1_draws,0.975))
+
+log_coef1_mean - log_coef1
+log_coef1_lower <= log_coef1 & log_coef1_upper >= log_coef1
+
+log_coef2_draws = simple_fit$draws('logcoef2')
+log_coef2_mean = mean(log_coef2_draws)
+log_coef2_lower = as.numeric(quantile(log_coef2_draws,0.025))
+log_coef2_upper = as.numeric(quantile(log_coef2_draws,0.975))
+
+log_coef2_mean - log_coef2
+log_coef2_lower <= log_coef2 & log_coef2_upper >= log_coef2
+
+start_pos_x_draws = simple_fit$draws('start_pos_x')
+start_pos_x_mean = colMeans(start_pos_x_draws)
+start_pos_x_lower = as.numeric(apply(start_pos_x_draws, MARGIN = 2, FUN = quantile, p = 0.025))
+start_pos_x_upper = as.numeric(apply(start_pos_x_draws, MARGIN = 2, FUN = quantile, p = 0.975))
+
+start_pos_x_mean - start_pos_x
+start_pos_x_lower <= start_pos_x & start_pos_x_upper >= start_pos_x
+mean(start_pos_x_lower <= start_pos_x & start_pos_x_upper >= start_pos_x)
+
+start_pos_y_draws = simple_fit$draws('start_pos_y')
+start_pos_y_mean = colMeans(start_pos_y_draws)
+start_pos_y_lower = as.numeric(apply(start_pos_y_draws, MARGIN = 2, FUN = quantile, p = 0.025))
+start_pos_y_upper = as.numeric(apply(start_pos_y_draws, MARGIN = 2, FUN = quantile, p = 0.025))
+
+start_pos_y_mean - start_pos_y
+start_pos_y_lower <= start_pos_y & start_pos_y_upper >= start_pos_y
+mean(start_pos_y_lower <= start_pos_y & start_pos_y_upper >= start_pos_y)
+
+
+w_x_draws = simple_fit$draws('w_x')
+w_x_mean = matrix(colMeans(w_x_draws), nrow = K_drifter, byrow = F)
+w_x_lower = matrix(apply(w_x_draws, MARGIN = 2, FUN = quantile, p = 0.025), nrow = K_drifter, byrow = F)
+w_x_upper = matrix(apply(w_x_draws, MARGIN = 2, FUN = quantile, p = 0.975), nrow = K_drifter, byrow = F)
+
+w_x_mean - w_x_matrix
+w_x_lower <= w_x_matrix & w_x_upper >= w_x_matrix
+
+mean(w_x_lower <= w_x_matrix & w_x_upper >= w_x_matrix)
+
+w_y_draws = simple_fit$draws('w_y')
+w_y_mean = matrix(colMeans(w_y_draws), nrow = K_drifter, byrow = F)
+w_y_lower = matrix(apply(w_y_draws, MARGIN = 2, FUN = quantile, p = 0.025), nrow = K_drifter, byrow = F)
+w_y_upper = matrix(apply(w_y_draws, MARGIN = 2, FUN = quantile, p = 0.975), nrow = K_drifter, byrow = F)
+
+w_y_mean - w_y_matrix
+w_y_lower <= w_y_matrix & w_y_upper >= w_y_matrix
+
+mean(w_y_lower <= w_y_matrix & w_y_upper >= w_y_matrix)
+
+
+p_x_base_post = exp(log_coef1_mean) * t_grid_data
+p_y_base_post = exp(log_coef2_mean) * t_grid_data
+
+p_x_base_mat_post = matrix(nrow = t_res, ncol = N_drifter)
+p_y_base_mat_post = matrix(nrow = t_res, ncol = N_drifter)
+
+for(d in 1:N_drifter){
+
+  p_x_base_mat_post[,d] = p_x_base_post + start_pos_x_mean[d]
+  p_y_base_mat_post[,d] = p_y_base_post + start_pos_y_mean[d]
+
+
+}
+
+p_x_mat_post = p_x_base_mat_post + Phi_data %*% w_x_mean
+p_y_mat_post = p_y_base_mat_post + Phi_data %*% w_y_mean
+
+
+Data_post = data.frame(t = rep(t_grid_data, N_drifter), x = c(p_x_mat_post), y = c(p_y_mat_post),
+                  Particle = rep(str_c("Particle",1:N_drifter), each = t_res))
+
+ggplot(Data_post, aes(x = x, y = y, color = Particle)) + geom_point() + theme(legend.position = "none")
+
+
+
+Phi_data %*% w_x_mean
+Phi_data %*% w_y_mean
+
+
+SF_sum = straight_fit$summary()
+
+max(SF_sum$rhat)
+
+a_x_draws = straight_fit$draws('a_x')
+b_x_draws = straight_fit$draws('b_x', format = 'draws_matrix')
+
+hist(b_x_draws)
+
+b_x_lower = apply(b_x_draws, MARGIN = 2, FUN = quantile, p = 0.025)
+b_x_upper = apply(b_x_draws, MARGIN = 2, FUN = quantile, p = 0.975)
+
+mean(b_x_draws)
+
+
+b_x_upper >= exp(log_coef1) & b_x_lower <= exp(log_coef1)
+
+mean(b_x_upper >= exp(log_coef1))
+mean(b_x_lower <= exp(log_coef1))
+mean(b_x_upper >= exp(log_coef1) & b_x_lower <= exp(log_coef1))
+
+exp(log_coef1)
+
+a_y_draws = straight_fit$draws('a_y')
+b_y_draws = straight_fit$draws('b_y')
+
+b_y_draws = straight_fit$draws('b_y', format = 'draws_matrix')
+b_y_lower = apply(b_y_draws, MARGIN = 2, FUN = quantile, p = 0.025)
+b_y_upper = apply(b_y_draws, MARGIN = 2, FUN = quantile, p = 0.975)
+
+hist(b_x_draws[,7])
+hist(straight_fit_VI$draws('b_x')[,7])
+
+
+mean(b_y_upper >= exp(log_coef2) & b_y_lower <= exp(log_coef2))
+
+exp(log_coef2)
+
+hist(b_y_draws)
+
+log_coef1_draws = straight_fit$draws('logcoef1')
+hist(exp(log_coef1_draws))
+
+log_coef2_draws = straight_fit$draws('logcoef2')
+hist(exp(log_coef2_draws))
+
+straight_fit$draws('sigma_vel')
+
+
