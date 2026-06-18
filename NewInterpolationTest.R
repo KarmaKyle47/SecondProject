@@ -702,13 +702,51 @@ R_VFs_M1_x = R_VFs[1,]
 log_coef1 = rnorm(1,0,0.35)
 log_coef2 = rnorm(1,0,0.35)
 
+# 2. Create X and Y vectors
+# seq() generates a sequence of numbers from -10 to 10
+x <- seq(-10, 10, length.out = 50)
+y <- seq(-10, 10, length.out = 50)
+
+# 3. Create a Z matrix filled with the constant value
+# We create a 50x50 matrix where every single cell is 5
+z <- matrix(exp(log_coef1), nrow = length(y), ncol = length(x))
+
+# 4. Create the surface plot
+fig <- plot_ly(
+  x = ~x,
+  y = ~y,
+  z = ~z,
+  type = "surface",
+  colorscale = "Viridis"
+)
+
+plotHSGP
+
+# 5. Update layout for better viewing
+fig <- fig %>% layout(
+  title = paste("Constant Plane Surface (Z =", constant_z, ")"),
+  scene = list(
+    xaxis = list(title = "X Axis"),
+    yaxis = list(title = "Y Axis"),
+    zaxis = list(
+      title = "Z Axis",
+      # Set the z-axis range so the plane doesn't look like a flat box
+      range = c(0, 10)
+    )
+  )
+)
+
+# 6. Show the plot
+fig
+
+
 N_drifter = 100
 K_drifter = 5
 
 start_pos_x = runif(N_drifter, min = -10, max = 10)
 start_pos_y = runif(N_drifter, min = -10, max = 10)
 
-sigma_vel = 0.1
+sigma_vel = 0.5
 
 w_x_matrix = matrix(rnorm(n = N_drifter*K_drifter,0,sigma_vel), nrow = K_drifter)
 w_y_matrix = matrix(rnorm(n = N_drifter*K_drifter,0,sigma_vel), nrow = K_drifter)
@@ -732,10 +770,10 @@ for(d in 1:N_drifter){
 
 }
 
-# Phi_data = bSpline(x = t_grid_data, df = K_drifter, intercept = F)
+Phi_data = bSpline(x = t_grid_data, df = K_drifter, intercept = F)
 #
-p_x_mat = p_x_base_mat# + Phi_data %*% w_x_matrix
-p_y_mat = p_y_base_mat# + Phi_data %*% w_y_matrix
+p_x_mat = p_x_base_mat + Phi_data %*% w_x_matrix
+p_y_mat = p_y_base_mat + Phi_data %*% w_y_matrix
 
 sigma_pos = 0.1
 
@@ -753,6 +791,7 @@ data_stan = list(
   D = N_drifter,
   K = K_drifter,
   N_drifter = t_res,
+  Phi = Phi_data,
 
   t_grid_data = t_grid_data,
   x_pos = p_x_mat_data,
@@ -766,13 +805,13 @@ line_simple_model = cmdstan_model('StraightLineSimple.stan')
 simple_fit = simple_interpolator_model$variational(
   data = data_stan,
   iter = 100000,
-  draws = 10000, show_messages = T, init = 0#, algorithm = "fullrank"
+  draws = 1000, show_messages = T, init = 0#, algorithm = "fullrank"
 )
 
 straight_fit_VI = line_simple_model$variational(
   data = data_stan,
   iter = 100000,
-  draws = 10000, show_messages = T, init = 0#, algorithm = "fullrank"
+  draws = 1000, show_messages = T, init = 0#, algorithm = "fullrank"
 )
 
 straight_fit_HMC = straight_fit
@@ -790,6 +829,8 @@ simple_fit = simple_interpolator_model$sample(
   parallel_chains = 4,
   refresh = 10
 )
+
+simple_fit = straight_fit_VI
 
 SF_sum = simple_fit$summary()
 
@@ -898,6 +939,8 @@ Phi_data %*% w_y_mean
 
 SF_sum = straight_fit$summary()
 
+straight_fit = straight_fit_VI
+
 max(SF_sum$rhat)
 
 a_x_draws = straight_fit$draws('a_x')
@@ -908,7 +951,7 @@ hist(b_x_draws)
 b_x_lower = apply(b_x_draws, MARGIN = 2, FUN = quantile, p = 0.025)
 b_x_upper = apply(b_x_draws, MARGIN = 2, FUN = quantile, p = 0.975)
 
-mean(b_x_draws)
+(mean(b_x_draws) - exp(log_coef1))^2
 
 
 b_x_upper >= exp(log_coef1) & b_x_lower <= exp(log_coef1)
@@ -936,12 +979,253 @@ exp(log_coef2)
 
 hist(b_y_draws)
 
-log_coef1_draws = straight_fit$draws('logcoef1')
+log_coef1_draws = straight_fit$draws('logcoef1', format = 'draws_matrix')
+log_coef1_lower = as.numeric(quantile(exp(log_coef1_draws), p = 0.025))
+log_coef1_upper = as.numeric(quantile(exp(log_coef1_draws), p = 0.975))
+
+
+(mean(exp(log_coef1_draws)) - exp(log_coef1))^2
+
+
 hist(exp(log_coef1_draws))
 
 log_coef2_draws = straight_fit$draws('logcoef2')
 hist(exp(log_coef2_draws))
 
 straight_fit$draws('sigma_vel')
+
+
+run_model_VI = function(){
+
+  log_coef1 = rnorm(1,0,0.35)
+  log_coef2 = rnorm(1,0,0.35)
+
+  N_drifter = 100
+  K_drifter = 5
+
+  start_pos_x = runif(N_drifter, min = -10, max = 10)
+  start_pos_y = runif(N_drifter, min = -10, max = 10)
+
+  sigma_vel = 0.5
+
+  w_x_matrix = matrix(rnorm(n = N_drifter*K_drifter,0,sigma_vel), nrow = K_drifter)
+  w_y_matrix = matrix(rnorm(n = N_drifter*K_drifter,0,sigma_vel), nrow = K_drifter)
+
+  t_start = 0
+  t_end = 10
+  t_res = 100
+  t_grid_data = seq(t_start,t_end,length.out = t_res)
+
+  p_x_base = exp(log_coef1) * t_grid_data
+  p_y_base = exp(log_coef2) * t_grid_data
+
+  p_x_base_mat = matrix(nrow = t_res, ncol = N_drifter)
+  p_y_base_mat = matrix(nrow = t_res, ncol = N_drifter)
+
+  for(d in 1:N_drifter){
+
+    p_x_base_mat[,d] = p_x_base + start_pos_x[d]
+    p_y_base_mat[,d] = p_y_base + start_pos_y[d]
+
+
+  }
+
+  Phi_data = bSpline(x = t_grid_data, df = K_drifter, intercept = F)
+  #
+  p_x_mat = p_x_base_mat + Phi_data %*% w_x_matrix
+  p_y_mat = p_y_base_mat + Phi_data %*% w_y_matrix
+
+  sigma_pos = 0.1
+
+  p_x_mat_data = p_x_mat + matrix(rnorm(N_drifter*t_res, 0, sigma_pos), nrow = t_res)
+  p_y_mat_data = p_y_mat + matrix(rnorm(N_drifter*t_res, 0, sigma_pos), nrow = t_res)
+
+  data_stan = list(
+    D = N_drifter,
+    K = K_drifter,
+    N_drifter = t_res,
+    Phi = Phi_data,
+
+    t_grid_data = t_grid_data,
+    x_pos = p_x_mat_data,
+    y_pos = p_y_mat_data
+  )
+
+  straight_fit = simple_interpolator_model$variational(
+    data = data_stan,
+    iter = 1000000,
+    draws = 10000, show_messages = T, init = 0, tol_rel_obj = 0.001#, algorithm = "fullrank"
+  )
+
+
+  raw_draws = straight_fit$draws(c('lp__','lp_approx__', 'logcoef1'),format = 'draws_matrix')
+
+  hist(exp(raw_draws[,3]))
+  exp(log_coef1)
+
+  raw_draws[,1]
+
+  log_coef1_draws = straight_fit$draws(format = 'draws_matrix')
+
+  # Extract the critical log-density variables evaluated on the unconstrained space
+  # lp__         = log p(theta, y) (Target density)
+  # lp_approx__  = log q(theta)    (Proposal density)
+  log_p <- raw_draws[,1]
+  log_q <- raw_draws[,2]
+
+  # 5. Calculate the raw log importance weights
+  # log(r_s) = log(p) - log(q)
+  raw_log_weights <- log_p - log_q
+
+  # 6. Apply Pareto Smoothed Importance Sampling (PSIS)
+  # The loo::psis() function automatically determines the truncation threshold M,
+  # fits the GPD to the upper tail, and computes the pareto-k diagnostic.
+  psis_result <- loo::psis(log_ratios = raw_log_weights, r_eff = 1)
+
+  # Extract the k-hat diagnostic value
+  k_hat <- psis_result$diagnostics$pareto_k
+  cat(sprintf("\nPSIS Pareto k-hat diagnostic: %.3f\n", k_hat))
+
+  # Evaluate the reliability of the Variational Approximation
+  if (k_hat <= 0.5) {
+    cat("Result: k <= 0.5. The variational approximation is reliable and variance is finite.\n")
+  } else if (k_hat <= 0.7) {
+    cat("Result: 0.5 < k <= 0.7. The approximation has degraded, but the PSIS correction is still capable of unbiased estimation.\n")
+  } else {
+    warning("Result: k > 0.7. The importance weights exhibit infinite variance. The VI estimate and the PSIS correction are unreliable. Exact HMC sampling is required.")
+  }
+
+  # 7. Extract the smoothed, unnormalized log weights from the PSIS object
+  # Normalization is deferred to the resampling stage for numerical stability
+  smoothed_log_weights <- weights(psis_result, log = TRUE, normalize = FALSE)
+
+  # 8. Correct the Variational Posterior Space
+  # Bind the smoothed log weights directly to the raw draws object
+  weighted_draws <- posterior::weight_draws(
+    x = raw_draws,
+    weights = smoothed_log_weights,
+    log = TRUE
+  )
+
+  # Execute Stratified Resampling
+  # This function generates an unweighted draws object that approximates the true
+  # posterior much more accurately than the raw ADVI draws, systematically correcting
+  # for the variance underestimation caused by the KL-divergence penalty.
+  corrected_draws <- posterior::resample_draws(
+    x = weighted_draws,
+    method = "stratified"
+  )
+
+  hist(corrected_draws[,3])
+
+  log_coef1_lower = as.numeric(quantile(exp(log_coef1_draws), p = 0.025))
+  log_coef1_upper = as.numeric(quantile(exp(log_coef1_draws), p = 0.975))
+
+  squared_error = (mean(exp(log_coef1_draws)) - exp(log_coef1))^2
+
+  in_CI = log_coef1_upper >= exp(log_coef1) & log_coef1_lower <= exp(log_coef1)
+
+  c(squared_error, in_CI, straight_fit$time()$total)
+
+}
+
+SF_sum = simple_fit$summary()
+
+straight_fit = simple_fit
+
+run_model_HMC = function(){
+
+  log_coef1 = rnorm(1,0,0.35)
+  log_coef2 = rnorm(1,0,0.35)
+
+  N_drifter = 100
+
+  start_pos_x = runif(N_drifter, min = -10, max = 10)
+  start_pos_y = runif(N_drifter, min = -10, max = 10)
+
+  sigma_vel = 0.1
+
+  b_x_errors = rnorm(N_drifter, 0, sigma_vel)
+  b_y_errors = rnorm(N_drifter, 0, sigma_vel)
+
+  t_start = 0
+  t_end = 10
+  t_res = 100
+  t_grid_data = seq(t_start,t_end,length.out = t_res)
+
+  p_x_base = exp(log_coef1) * t_grid_data
+  p_y_base = exp(log_coef2) * t_grid_data
+
+  p_x_base_mat = matrix(nrow = t_res, ncol = N_drifter)
+  p_y_base_mat = matrix(nrow = t_res, ncol = N_drifter)
+
+  for(d in 1:N_drifter){
+
+    p_x_base_mat[,d] = p_x_base + start_pos_x[d] + b_x_errors[d]*t_grid_data
+    p_y_base_mat[,d] = p_y_base + start_pos_y[d] + b_y_errors[d]*t_grid_data
+
+
+  }
+
+  # Phi_data = bSpline(x = t_grid_data, df = K_drifter, intercept = F)
+  #
+  p_x_mat = p_x_base_mat# + Phi_data %*% w_x_matrix
+  p_y_mat = p_y_base_mat# + Phi_data %*% w_y_matrix
+
+  sigma_pos = 0.1
+
+  p_x_mat_data = p_x_mat + matrix(rnorm(N_drifter*t_res, 0, sigma_pos), nrow = t_res)
+  p_y_mat_data = p_y_mat + matrix(rnorm(N_drifter*t_res, 0, sigma_pos), nrow = t_res)
+
+  data_stan = list(
+    D = N_drifter,
+    K = K_drifter,
+    N_drifter = t_res,
+
+    t_grid_data = t_grid_data,
+    x_pos = p_x_mat_data,
+    y_pos = p_y_mat_data
+  )
+
+  straight_fit = line_simple_model$sample(
+    data = data_stan,
+    chains = 4,
+    parallel_chains = 4,
+    show_messages = F
+  )
+
+  log_coef1_draws = straight_fit$draws('logcoef1', format = 'draws_matrix')
+  log_coef1_lower = as.numeric(quantile(exp(log_coef1_draws), p = 0.025))
+  log_coef1_upper = as.numeric(quantile(exp(log_coef1_draws), p = 0.975))
+
+  squared_error = (mean(exp(log_coef1_draws)) - exp(log_coef1))^2
+
+  in_CI = log_coef1_upper >= exp(log_coef1) & log_coef1_lower <= exp(log_coef1)
+
+  c(squared_error, in_CI, straight_fit$time()$total)
+
+}
+
+max(SF_sum$rhat)
+
+Spline_V1_Test_VI = data.frame(Sq_Error = rep(0,100), In_CI = rep(0,100), Time = rep(0,100))
+i=1
+for(i in 2:100){
+
+  Spline_V1_Test_VI[i,] = run_model_VI()
+
+  print(str_c('Done with run ',i, '.'))
+
+
+}
+
+Spline_V1_Test_VI[1,]
+warnings()
+
+
+mean(Spline_V1_Test_VI$Sq_Error)
+mean(Spline_V1_Test_VI$In_CI)
+mean(Spline_V1_Test_VI$Time)
+
 
 
