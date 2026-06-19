@@ -798,7 +798,7 @@ data_stan = list(
   y_pos = p_y_mat_data
 )
 
-simple_interpolator_model = cmdstan_model('SuperSimpleBaseSplineInterpolator.stan')
+simple_interpolator_model = cmdstan_model('SuperSimpleBaseSplineInterpolator.stan', force_recompile = T, compile_model_methods = TRUE)
 line_simple_model = cmdstan_model('StraightLineSimple.stan')
 
 
@@ -1000,7 +1000,7 @@ run_model_VI = function(){
   log_coef1 = rnorm(1,0,0.35)
   log_coef2 = rnorm(1,0,0.35)
 
-  N_drifter = 100
+  N_drifter = 10
   K_drifter = 5
 
   start_pos_x = runif(N_drifter, min = -10, max = 10)
@@ -1013,7 +1013,7 @@ run_model_VI = function(){
 
   t_start = 0
   t_end = 10
-  t_res = 100
+  t_res = 25
   t_grid_data = seq(t_start,t_end,length.out = t_res)
 
   p_x_base = exp(log_coef1) * t_grid_data
@@ -1051,72 +1051,145 @@ run_model_VI = function(){
     y_pos = p_y_mat_data
   )
 
-  straight_fit = simple_interpolator_model$variational(
+  straight_fit_VI = simple_interpolator_model$variational(
     data = data_stan,
-    iter = 1000000,
-    draws = 10000, show_messages = T, init = 0, tol_rel_obj = 0.001#, algorithm = "fullrank"
+    iter = 100000,
+    draws = 10000, show_messages = T, init = 0, tol_rel_obj = 0.01, algorithm = "meanfield", adapt_iter = 1000
   )
 
-
-  raw_draws = straight_fit$draws(c('lp__','lp_approx__', 'logcoef1'),format = 'draws_matrix')
-
-  hist(exp(raw_draws[,3]))
-  exp(log_coef1)
-
-  raw_draws[,1]
-
-  log_coef1_draws = straight_fit$draws(format = 'draws_matrix')
-
-  # Extract the critical log-density variables evaluated on the unconstrained space
-  # lp__         = log p(theta, y) (Target density)
-  # lp_approx__  = log q(theta)    (Proposal density)
-  log_p <- raw_draws[,1]
-  log_q <- raw_draws[,2]
-
-  # 5. Calculate the raw log importance weights
-  # log(r_s) = log(p) - log(q)
-  raw_log_weights <- log_p - log_q
-
-  # 6. Apply Pareto Smoothed Importance Sampling (PSIS)
-  # The loo::psis() function automatically determines the truncation threshold M,
-  # fits the GPD to the upper tail, and computes the pareto-k diagnostic.
-  psis_result <- loo::psis(log_ratios = raw_log_weights, r_eff = 1)
-
-  # Extract the k-hat diagnostic value
-  k_hat <- psis_result$diagnostics$pareto_k
-  cat(sprintf("\nPSIS Pareto k-hat diagnostic: %.3f\n", k_hat))
-
-  # Evaluate the reliability of the Variational Approximation
-  if (k_hat <= 0.5) {
-    cat("Result: k <= 0.5. The variational approximation is reliable and variance is finite.\n")
-  } else if (k_hat <= 0.7) {
-    cat("Result: 0.5 < k <= 0.7. The approximation has degraded, but the PSIS correction is still capable of unbiased estimation.\n")
-  } else {
-    warning("Result: k > 0.7. The importance weights exhibit infinite variance. The VI estimate and the PSIS correction are unreliable. Exact HMC sampling is required.")
-  }
-
-  # 7. Extract the smoothed, unnormalized log weights from the PSIS object
-  # Normalization is deferred to the resampling stage for numerical stability
-  smoothed_log_weights <- weights(psis_result, log = TRUE, normalize = FALSE)
-
-  # 8. Correct the Variational Posterior Space
-  # Bind the smoothed log weights directly to the raw draws object
-  weighted_draws <- posterior::weight_draws(
-    x = raw_draws,
-    weights = smoothed_log_weights,
-    log = TRUE
+  straight_fit_HMC = simple_interpolator_model$sample(
+    data = data_stan,
+    chains = 4,
+    parallel_chains = 4,
+    show_messages = T
   )
 
-  # Execute Stratified Resampling
-  # This function generates an unweighted draws object that approximates the true
-  # posterior much more accurately than the raw ADVI draws, systematically correcting
-  # for the variance underestimation caused by the KL-divergence penalty.
-  corrected_draws <- posterior::resample_draws(
-    x = weighted_draws,
-    method = "stratified"
-  )
+  u_draws <- straight_fit_VI$unconstrain_draws(format = "draws_matrix")
 
-  hist(corrected_draws[,3])
+  # 2. Calculate the mean of each unconstrained parameter directly
+  # This entirely skips the list-formatting nightmare and gives you the exact vector you need
+  upars <- colMeans(u_draws)
+
+  colnames(u_draws)
+
+  # 3. Pass that vector directly into the Hessian method
+  hessian_out <- straight_fit_VI$hessian(upars)
+  H <- hessian_out$hessian
+
+  # Calculate LRVB Covariance
+  lrvb_cov <- solve(-H)
+
+
+  lrvb_cov[c(123,124),c(123,124)]
+
+  HMC_sum$sd[HMC_sum$variable == 'logcoef1']^2
+
+
+
+  simple_interpolator_model$unconstrain_pars()
+
+  straight_fit_VI$init_model_methods(hessian = T)
+
+  straight_fit_VI$unconstrain_variables()
+
+  HMC_sum = straight_fit_HMC$summary()
+
+  HMC_sum_unconstrained = HMC_sum[str_detect(HMC_sum$variable, 'w',negate = T),][-1,]
+
+  plot(HMC_sum_unconstrained$sd^2, diag(lrvb_cov))
+  abline(a=0,b=1)
+
+  HMC_sum$variable
+
+  VI_sum$variable
+
+  HMC_post_means = HMC_sum$mean[-1]
+  VI_post_means = VI_sum$mean[-c(1,2)]
+
+  HMC_post_sds = HMC_sum$sd[-1]
+  VI_post_sds = VI_sum$sd[-c(1,2)]
+
+  HMC_post_lowers = HMC_sum$q5[-1]
+  VI_post_lowers = VI_sum$q5[-c(1,2)]
+
+  HMC_post_uppers = HMC_sum$q95[-1]
+  VI_post_uppers = VI_sum$q95[-c(1,2)]
+
+  VI_sum = straight_fit_VI$summary()
+
+  plot(HMC_post_means, VI_post_means)
+  abline(b=1,a = 0)
+
+  plot(HMC_post_sds, VI_post_sds)
+  abline(b=1,a = 0)
+
+  plot(HMC_post_lowers, VI_post_lowers)
+  abline(b=1,a = 0)
+
+  plot(HMC_post_uppers, VI_post_uppers)
+  abline(b=1,a = 0)
+
+  # raw_draws = straight_fit$draws(c('lp__','lp_approx__', 'logcoef1'),format = 'draws_matrix')
+  #
+  # hist(exp(raw_draws[,3]))
+  # exp(log_coef1)
+  #
+  # raw_draws[,1]
+
+  log_coef1_draws = straight_fit$draws('logcoef1', format = 'draws_matrix')
+
+  # hist(exp(log_coef1_draws))
+  #
+  # # Extract the critical log-density variables evaluated on the unconstrained space
+  # # lp__         = log p(theta, y) (Target density)
+  # # lp_approx__  = log q(theta)    (Proposal density)
+  # log_p <- raw_draws[,1]
+  # log_q <- raw_draws[,2]
+  #
+  # # 5. Calculate the raw log importance weights
+  # # log(r_s) = log(p) - log(q)
+  # raw_log_weights <- log_p - log_q
+  #
+  # # 6. Apply Pareto Smoothed Importance Sampling (PSIS)
+  # # The loo::psis() function automatically determines the truncation threshold M,
+  # # fits the GPD to the upper tail, and computes the pareto-k diagnostic.
+  # psis_result <- loo::psis(log_ratios = raw_log_weights, r_eff = 1)
+  #
+  # # Extract the k-hat diagnostic value
+  # k_hat <- psis_result$diagnostics$pareto_k
+  # cat(sprintf("\nPSIS Pareto k-hat diagnostic: %.3f\n", k_hat))
+  #
+  # # Evaluate the reliability of the Variational Approximation
+  # if (k_hat <= 0.5) {
+  #   cat("Result: k <= 0.5. The variational approximation is reliable and variance is finite.\n")
+  # } else if (k_hat <= 0.7) {
+  #   cat("Result: 0.5 < k <= 0.7. The approximation has degraded, but the PSIS correction is still capable of unbiased estimation.\n")
+  # } else {
+  #   warning("Result: k > 0.7. The importance weights exhibit infinite variance. The VI estimate and the PSIS correction are unreliable. Exact HMC sampling is required.")
+  # }
+  #
+  # # 7. Extract the smoothed, unnormalized log weights from the PSIS object
+  # # Normalization is deferred to the resampling stage for numerical stability
+  # smoothed_log_weights <- weights(psis_result, log = TRUE, normalize = FALSE)
+  #
+  # # 8. Correct the Variational Posterior Space
+  # # Bind the smoothed log weights directly to the raw draws object
+  # weighted_draws <- posterior::weight_draws(
+  #   x = raw_draws,
+  #   weights = smoothed_log_weights,
+  #   log = TRUE
+  # )
+  #
+  # # Execute Stratified Resampling
+  # # This function generates an unweighted draws object that approximates the true
+  # # posterior much more accurately than the raw ADVI draws, systematically correcting
+  # # for the variance underestimation caused by the KL-divergence penalty.
+  # corrected_draws <- posterior::resample_draws(
+  #   x = weighted_draws,
+  #   method = "stratified"
+  # )
+  #
+  # hist(corrected_draws[,3])
 
   log_coef1_lower = as.numeric(quantile(exp(log_coef1_draws), p = 0.025))
   log_coef1_upper = as.numeric(quantile(exp(log_coef1_draws), p = 0.975))
@@ -1194,6 +1267,8 @@ run_model_HMC = function(){
     show_messages = F
   )
 
+  max(straight_fit$summary()$rhat)
+
   log_coef1_draws = straight_fit$draws('logcoef1', format = 'draws_matrix')
   log_coef1_lower = as.numeric(quantile(exp(log_coef1_draws), p = 0.025))
   log_coef1_upper = as.numeric(quantile(exp(log_coef1_draws), p = 0.975))
@@ -1208,24 +1283,24 @@ run_model_HMC = function(){
 
 max(SF_sum$rhat)
 
-Spline_V1_Test_VI = data.frame(Sq_Error = rep(0,100), In_CI = rep(0,100), Time = rep(0,100))
+Spline_V1_Test_MCMC = data.frame(Sq_Error = rep(0,100), In_CI = rep(0,100), Time = rep(0,100))
 i=1
-for(i in 2:100){
+for(i in 1:100){
 
-  Spline_V1_Test_VI[i,] = run_model_VI()
+  Spline_V1_Test_MCMC[i,] = run_model_VI()
 
   print(str_c('Done with run ',i, '.'))
 
 
 }
 
-Spline_V1_Test_VI[1,]
+Spline_V1_Test_MCMC[1,]
 warnings()
 
 
-mean(Spline_V1_Test_VI$Sq_Error)
-mean(Spline_V1_Test_VI$In_CI)
-mean(Spline_V1_Test_VI$Time)
+mean(Spline_V1_Test_MCMC$Sq_Error)
+mean(Spline_V1_Test_MCMC$In_CI)
+mean(Spline_V1_Test_MCMC$Time)
 
 
 
