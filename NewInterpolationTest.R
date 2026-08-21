@@ -409,6 +409,10 @@ plotPostDrifter(1)
 d=1
 
 save(list = ls(all.names = TRUE), file = "June4SplineInterpolationTesting_FirstMagAngle_wAR1.RData")
+
+
+load("June4SplineInterpolationTesting_FirstMagAngle_wAR1.RData")
+
 d=1
 load("May31SplineInterpolationTesting.RData")
 
@@ -1054,14 +1058,14 @@ run_model_VI = function(){
   straight_fit_VI = simple_interpolator_model$variational(
     data = data_stan,
     iter = 100000,
-    draws = 10000, show_messages = T, init = 0, tol_rel_obj = 0.01, algorithm = "meanfield", adapt_iter = 1000
+    draws = 1000, show_messages = F, init = 0, tol_rel_obj = 0.01, algorithm = "meanfield", adapt_iter = 1000
   )
 
   straight_fit_HMC = simple_interpolator_model$sample(
     data = data_stan,
     chains = 4,
     parallel_chains = 4,
-    show_messages = T
+    show_messages = F
   )
 
   u_draws <- straight_fit_VI$unconstrain_draws(format = "draws_matrix")
@@ -1069,65 +1073,98 @@ run_model_VI = function(){
   # 2. Calculate the mean of each unconstrained parameter directly
   # This entirely skips the list-formatting nightmare and gives you the exact vector you need
   upars <- colMeans(u_draws)
-
-  colnames(u_draws)
+  u_vars = apply(u_draws, MARGIN = 2, FUN = var)
 
   # 3. Pass that vector directly into the Hessian method
   hessian_out <- straight_fit_VI$hessian(upars)
   H <- hessian_out$hessian
+  mean_H = matrix(0, nrow = ncol(u_draws), ncol = ncol(u_draws))
+  for(i in 1:100){
+
+    cur_H = straight_fit_VI$hessian(u_draws[i,])$hessian
+
+    mean_H = mean_H + cur_H
+
+    svMisc::progress(i, 100)
+
+  }
+
+  mean_H = mean_H / 100
+
+  # min_EV_H = min(eigen(-H)$values)
+  # min_EV_mean_H = min(eigen(-mean_H)$values)
+  #
+  # min(EVs_H)
+  #
+  # straight_fit_VI$hessian(upars)
 
   # Calculate LRVB Covariance
-  lrvb_cov <- solve(-H)
+  # lrvb_cov <- solve(diag(1/u_vars) - H)
+  #
+  # pd_H = as.matrix(Matrix::nearPD(-H)$mat)
+  # lrvb_cov_PD_correction = solve(pd_H)
 
 
-  lrvb_cov[c(123,124),c(123,124)]
-
-  HMC_sum$sd[HMC_sum$variable == 'logcoef1']^2
-
+  lrvb_cov_meanH = solve(-mean_H)
+  lrvb_cov_H = solve(-H)
 
 
-  simple_interpolator_model$unconstrain_pars()
+#
+#   log_coef1_var = lrvb_cov[which(HMC_sum_unconstrained$variable == 'logcoef1'),which(HMC_sum_unconstrained$variable == 'logcoef1')]
+#   log_coef2_var = lrvb_cov[which(HMC_sum_unconstrained$variable == 'logcoef2'),which(HMC_sum_unconstrained$variable == 'logcoef2')]
+#
+#   HMC_sum$sd[HMC_sum$variable == 'logcoef1']^2
+#   HMC_sum$sd[HMC_sum$variable == 'logcoef2']^2
+#
+#
+#
+#   simple_interpolator_model$unconstrain_pars()
+#
+#   straight_fit_VI$init_model_methods(hessian = T)
+#
+#   straight_fit_VI$unconstrain_variables()
 
-  straight_fit_VI$init_model_methods(hessian = T)
+  # HMC_sum = straight_fit_HMC$summary()
+  #
+  # HMC_sum_unconstrained = HMC_sum[str_detect(HMC_sum$variable, 'w',negate = T),][-1,]
 
-  straight_fit_VI$unconstrain_variables()
+  #
+  # plot(HMC_sum_unconstrained$sd^2, diag(lrvb_cov_meanH))
+  # plot(HMC_sum_unconstrained$sd^2, diag(lrvb_cov_H))
+  # plot(HMC_sum_unconstrained$sd^2, u_vars)
+  # abline(a=0,b=1)
 
-  HMC_sum = straight_fit_HMC$summary()
-
-  HMC_sum_unconstrained = HMC_sum[str_detect(HMC_sum$variable, 'w',negate = T),][-1,]
-
-  plot(HMC_sum_unconstrained$sd^2, diag(lrvb_cov))
-  abline(a=0,b=1)
-
-  HMC_sum$variable
-
-  VI_sum$variable
-
-  HMC_post_means = HMC_sum$mean[-1]
-  VI_post_means = VI_sum$mean[-c(1,2)]
-
-  HMC_post_sds = HMC_sum$sd[-1]
-  VI_post_sds = VI_sum$sd[-c(1,2)]
-
-  HMC_post_lowers = HMC_sum$q5[-1]
-  VI_post_lowers = VI_sum$q5[-c(1,2)]
-
-  HMC_post_uppers = HMC_sum$q95[-1]
-  VI_post_uppers = VI_sum$q95[-c(1,2)]
-
-  VI_sum = straight_fit_VI$summary()
-
-  plot(HMC_post_means, VI_post_means)
-  abline(b=1,a = 0)
-
-  plot(HMC_post_sds, VI_post_sds)
-  abline(b=1,a = 0)
-
-  plot(HMC_post_lowers, VI_post_lowers)
-  abline(b=1,a = 0)
-
-  plot(HMC_post_uppers, VI_post_uppers)
-  abline(b=1,a = 0)
+  # save.image(file = 'June18thLRVBSuccess.RData')
+  #
+  # HMC_sum$variable
+  #
+  # VI_sum$variable
+  #
+  # HMC_post_means = HMC_sum$mean[-1]
+  # VI_post_means = VI_sum$mean[-c(1,2)]
+  #
+  # HMC_post_sds = HMC_sum$sd[-1]
+  # VI_post_sds = VI_sum$sd[-c(1,2)]
+  #
+  # HMC_post_lowers = HMC_sum$q5[-1]
+  # VI_post_lowers = VI_sum$q5[-c(1,2)]
+  #
+  # HMC_post_uppers = HMC_sum$q95[-1]
+  # VI_post_uppers = VI_sum$q95[-c(1,2)]
+  #
+  # VI_sum = straight_fit_VI$summary()
+  #
+  # plot(HMC_post_means, VI_post_means)
+  # abline(b=1,a = 0)
+  #
+  # plot(HMC_post_sds, VI_post_sds)
+  # abline(b=1,a = 0)
+  #
+  # plot(HMC_post_lowers, VI_post_lowers)
+  # abline(b=1,a = 0)
+  #
+  # plot(HMC_post_uppers, VI_post_uppers)
+  # abline(b=1,a = 0)
 
   # raw_draws = straight_fit$draws(c('lp__','lp_approx__', 'logcoef1'),format = 'draws_matrix')
   #
@@ -1136,7 +1173,7 @@ run_model_VI = function(){
   #
   # raw_draws[,1]
 
-  log_coef1_draws = straight_fit$draws('logcoef1', format = 'draws_matrix')
+  # log_coef1_draws = straight_fit_VI$draws('logcoef1', format = 'draws_matrix')
 
   # hist(exp(log_coef1_draws))
   #
@@ -1191,14 +1228,43 @@ run_model_VI = function(){
   #
   # hist(corrected_draws[,3])
 
-  log_coef1_lower = as.numeric(quantile(exp(log_coef1_draws), p = 0.025))
-  log_coef1_upper = as.numeric(quantile(exp(log_coef1_draws), p = 0.975))
+  HMC_sum = straight_fit_HMC$summary()
+  HMC_sum_unconstrained = HMC_sum[str_detect(HMC_sum$variable, 'w',negate = T),][-1,]
+
+  log_coef1_var_meanH = lrvb_cov_meanH[which(HMC_sum_unconstrained$variable == 'logcoef1'),which(HMC_sum_unconstrained$variable == 'logcoef1')]
+  log_coef2_var_meanH = lrvb_cov_meanH[which(HMC_sum_unconstrained$variable == 'logcoef2'),which(HMC_sum_unconstrained$variable == 'logcoef2')]
+
+  log_coef1_var_H = lrvb_cov_H[which(HMC_sum_unconstrained$variable == 'logcoef1'),which(HMC_sum_unconstrained$variable == 'logcoef1')]
+  log_coef2_var_H = lrvb_cov_H[which(HMC_sum_unconstrained$variable == 'logcoef2'),which(HMC_sum_unconstrained$variable == 'logcoef2')]
+
+  log_coef1_draws = straight_fit_VI$draws('logcoef1', format = 'draws_matrix')
+  log_coef2_draws = straight_fit_VI$draws('logcoef2', format = 'draws_matrix')
+
+  log_coef1_mean = mean(log_coef1_draws)
+  log_coef2_mean = mean(log_coef2_draws)
+
+  log_coef1_lower_meanH = log_coef1_mean - 1.96*sqrt(log_coef1_var_meanH)
+  log_coef1_upper_meanH = log_coef1_mean + 1.96*sqrt(log_coef1_var_meanH)
+
+  log_coef2_lower_meanH = log_coef2_mean - 1.96*sqrt(log_coef2_var_meanH)
+  log_coef2_upper_meanH = log_coef2_mean + 1.96*sqrt(log_coef2_var_meanH)
+
+  log_coef1_lower_H = log_coef1_mean - 1.96*sqrt(log_coef1_var_H)
+  log_coef1_upper_H = log_coef1_mean + 1.96*sqrt(log_coef1_var_H)
+
+  log_coef2_lower_H = log_coef2_mean - 1.96*sqrt(log_coef2_var_H)
+  log_coef2_upper_H = log_coef2_mean + 1.96*sqrt(log_coef2_var_H)
 
   squared_error = (mean(exp(log_coef1_draws)) - exp(log_coef1))^2
 
-  in_CI = log_coef1_upper >= exp(log_coef1) & log_coef1_lower <= exp(log_coef1)
+  in_CI_1_meanH = log_coef1_upper_meanH >= log_coef1 & log_coef1_lower_meanH <= log_coef1
+  in_CI_2_meanH = log_coef2_upper_meanH >= log_coef2 & log_coef2_lower_meanH <= log_coef2
 
-  c(squared_error, in_CI, straight_fit$time()$total)
+  in_CI_1_H = log_coef1_upper_H >= log_coef1 & log_coef1_lower_H <= log_coef1
+  in_CI_2_H = log_coef2_upper_H >= log_coef2 & log_coef2_lower_H <= log_coef2
+
+
+  c(squared_error, in_CI_1_meanH, in_CI_2_meanH, in_CI_1_H, in_CI_2_H, straight_fit_VI$time()$total)
 
 }
 
@@ -1283,19 +1349,25 @@ run_model_HMC = function(){
 
 max(SF_sum$rhat)
 
-Spline_V1_Test_MCMC = data.frame(Sq_Error = rep(0,100), In_CI = rep(0,100), Time = rep(0,100))
+Post_Hoc_Spline_V3_Test_VI = data.frame(Sq_Error = rep(0,100), In_CI_1_meanH = rep(0,100), In_CI_2_meanH = rep(0,100), In_CI_1_H = rep(0,100), In_CI_2_H = rep(0,100), Time = rep(0,100))
 i=1
 for(i in 1:100){
 
-  Spline_V1_Test_MCMC[i,] = run_model_VI()
+  Post_Hoc_Spline_V3_Test_VI[i,] = run_model_VI()
 
   print(str_c('Done with run ',i, '.'))
 
 
 }
 
+mean(Post_Hoc_Spline_V3_Test_VI$In_CI_1_H, na.rm = T)
+mean(Post_Hoc_Spline_V3_Test_VI$In_CI_2_H, na.rm = T)
+mean(Post_Hoc_Spline_V3_Test_VI$Sq_Error, na.rm = T)
+mean(Post_Hoc_Spline_V3_Test_VI$Time, na.rm = T)
 Spline_V1_Test_MCMC[1,]
 warnings()
+
+save(Post_Hoc_Spline_V3_Test_VI, file = 'MeanLinearResponseTestJuly4.RData')
 
 
 mean(Spline_V1_Test_MCMC$Sq_Error)
@@ -1303,4 +1375,531 @@ mean(Spline_V1_Test_MCMC$In_CI)
 mean(Spline_V1_Test_MCMC$Time)
 
 
+
+
+# Linear Response Test
+# Constant Trajectories with complex vector fields
+# Not 1 to 1
+
+baseVectorFields = function(t, curPos) {
+  x = curPos[1]
+  y = curPos[2]
+
+  # 1. Original window function
+  window = cos(pi * x / 20) * cos(pi * y / 20)
+
+  # 2. Original base fields (multiplied by window)
+  f1 = c(y, -1 * x) * window
+  f2 = c(x, y) * sin(t / 8) * window
+
+  # 3. Boundary Repulsion Setup
+  boundary_limit = 10  # Matches the zeroes of your cosine function
+  k = 0.1             # Repulsion strength (tune this!)
+  eps = 0.01           # Small buffer to prevent division by zero
+
+  # Inverse square repulsion:
+  # As 'x' approaches 'boundary_limit', the second term explodes negatively (pushes left).
+  # As 'x' approaches '-boundary_limit', the first term explodes positively (pushes right).
+  repel_x = k * (1 / (x + boundary_limit + eps)^2 - 1 / (boundary_limit - x + eps)^2)
+  repel_y = k * (1 / (y + boundary_limit + eps)^2 - 1 / (boundary_limit - y + eps)^2)
+
+  repulsion = c(repel_x, repel_y)
+
+  # 4. Add the repulsion to your fields (outside the window multiplier)
+  f1 = f1 + repulsion
+  f2 = f2 + repulsion
+
+  matrix(c(f1, f2), nrow = 2, byrow = FALSE)
+}
+
+
+
+run_FullPaths_ConsTraj_Sim = function(){
+
+  log_coef1 = rnorm(1, 0, 0.35)
+  log_coef2 = rnorm(1, 0, 0.35)
+
+  sampledHSGP = list(log_z = list(matrix(c(log_coef1,0,0,0), nrow = 2), matrix(c(log_coef2,0,0,0), nrow = 2)),
+                     log_k = rep(1,2),
+                     log_l = rep(1/sqrt(2*pi),2))
+
+  rand_res = 100
+
+  sampledParticles = samplePhySpaceParticles(1, startTime = 0, n_obs = 100*rand_res, border = c(-10,-10,10,10), borderBuffer = 0.2, baseVectorFields, sampledHSGP,
+                                             M = 1, t_step_mean = 0.01, vel_sigma = 0.25, pos_sigma = 0.05)
+
+  sampledParticles_Sub = sampledParticles[1:100 * rand_res - (rand_res-1),]
+
+  drifter_names = unique(sampledParticles_Sub$Particle)
+  drifter_num_points = c()
+  i=1
+  for(i in 1:length(drifter_names)){
+
+    cur_drifter = sampledParticles_Sub[sampledParticles_Sub$Particle == drifter_names[i],]
+
+    drifter_num_points = c(drifter_num_points, nrow(cur_drifter))
+
+  }
+
+  N_quad = 1000
+
+  D = length(drifter_names)
+  N = drifter_num_points
+  K_drifter = 10
+
+  p_x_base = list()
+  p_y_base = list()
+  v_x_base = list()
+
+  v_y_base = list()
+
+  Phi_List = list()
+  Phi_d_List = list()
+  Phi_data_List = list()
+
+  t_grid_list = list()
+  Lts = rep(0,D)
+  drifter_boundaries = matrix(nrow = D, ncol = 2)
+
+  for(d in 1:D){
+
+    curDrifter = sampledParticles_Sub[sampledParticles_Sub$Particle == drifter_names[d],]
+    cur_boundary = c(min(curDrifter$t),max(curDrifter$t))
+    cur_quad_grid = seq(cur_boundary[1], cur_boundary[2], length.out = N_quad)
+
+    cur_x_spline = splinefun(x = curDrifter$t, y = curDrifter$X1, method = 'fmm')
+    p_x_base[[d]] = cur_x_spline(cur_quad_grid)
+    v_x_base[[d]] = cur_x_spline(cur_quad_grid, deriv = 1)
+
+    cur_y_spline = splinefun(x = curDrifter$t, y = curDrifter$X2, method = 'fmm')
+    p_y_base[[d]] = cur_y_spline(cur_quad_grid)
+    v_y_base[[d]] = cur_y_spline(cur_quad_grid, deriv = 1)
+
+    Phi_List[[d]] = bSpline(x = cur_quad_grid, df = K_drifter, intercept = F)
+    Phi_d_List[[d]] = bSpline(x = cur_quad_grid, df = K_drifter, intercept = F, derivs = 1)
+
+    Phi_data_List[[d]] = bSpline(x = curDrifter$t, df = K_drifter, intercept = F)
+
+    t_grid_list[[d]] = cur_quad_grid
+    Lts[d] = diff(cur_boundary)
+
+    drifter_boundaries[d,] = cur_boundary
+
+    svMisc::progress(d, D)
+
+  }
+
+
+  full_data = list(
+    D = D,
+    N_quad = N_quad,
+
+    K = rep(K_drifter, D),
+    total_K = K_drifter*D,
+
+    N_drifter = drifter_num_points,
+    total_data = sum(drifter_num_points),
+
+    total_Z = sum(K_drifter*drifter_num_points),
+
+    p_x_base = p_x_base,
+    p_y_base = p_y_base,
+    v_x_base = v_x_base,
+    v_y_base = v_y_base,
+
+    Phi_flat = do.call(cbind, Phi_List),
+    Phi_d_flat = do.call(cbind, Phi_d_List),
+
+    Phi_data_elements = unlist(Phi_data_List),
+
+    drifter_boundaries = drifter_boundaries,
+
+    N_models = 2
+  )
+
+  FullPaths_ConTraj_fit = FullPaths_ConTraj_model$variational(
+    data = full_data,
+    threads = max_cores/4,
+    iter = 1000000,
+    draws = 1000, show_messages = T, init = 0#, algorithm = "fullrank"
+  )
+
+  FullPaths_ConTraj_HMC = FullPaths_ConTraj_model$sample(
+    data = full_data,
+    chains = 4,
+    parallel_chains = 4,
+    threads_per_chain = max_cores/4,
+    show_messages = T, init = 0
+  )
+
+
+
+  log_coef1_draws = FullPaths_ConTraj_fit$draws('log_coef1', format = 'draws_matrix')
+  log_coef2_draws = FullPaths_ConTraj_fit$draws('log_coef2', format = 'draws_matrix')
+  sigma_pos_draws = FullPaths_ConTraj_fit$draws('sigma_pos', format = 'draws_matrix')
+  sigma_vel_draws = FullPaths_ConTraj_fit$draws('sigma_vel', format = 'draws_matrix')
+
+  w_x_draws = FullPaths_ConTraj_fit$draws('w_x', format = 'draws_matrix')
+  w_y_draws = FullPaths_ConTraj_fit$draws('w_y', format = 'draws_matrix')
+
+  u_draws <- FullPaths_ConTraj_fit$unconstrain_draws(format = "draws_matrix")
+
+  # 2. Calculate the mean of each unconstrained parameter directly
+  # This entirely skips the list-formatting nightmare and gives you the exact vector you need
+  upars <- colMeans(u_draws)
+  u_vars = apply(u_draws, MARGIN = 2, FUN = var)
+
+  # 3. Pass that vector directly into the Hessian method
+  hessian_out <- FullPaths_ConTraj_fit$hessian(upars)
+  H <- hessian_out$hessian
+
+  lrvb_cov_H = solve(-H)
+
+  log_coef1_var_H = lrvb_cov_H[which(colnames(u_draws) == 'log_coef1'),which(colnames(u_draws) == 'log_coef1')]
+  log_coef2_var_H = lrvb_cov_H[which(colnames(u_draws) == 'log_coef2'),which(colnames(u_draws) == 'log_coef2')]
+
+  lower_logcoef_1 = mean(log_coef1_draws) - 1.96*sqrt(log_coef1_var_H)
+  upper_logcoef_1 = mean(log_coef1_draws) + 1.96*sqrt(log_coef1_var_H)
+
+  lower_logcoef_2 = mean(log_coef2_draws) - 1.96*sqrt(log_coef2_var_H)
+  upper_logcoef_2 = mean(log_coef2_draws) + 1.96*sqrt(log_coef2_var_H)
+
+  squared_error_1 = (mean(exp(log_coef1_draws)) - exp(log_coef1))^2
+  squared_error_2 = (mean(exp(log_coef2_draws)) - exp(log_coef2))^2
+
+  in_CI_1 = lower_logcoef_1 >= log_coef1 & upper_logcoef_1 <= log_coef1
+  in_CI_2 = lower_logcoef_2 >= log_coef2 & upper_logcoef_2 <= log_coef2
+
+  c(squared_error_1, squared_error_2, in_CI_1, in_CI_2, FullPaths_ConTraj_fit$time()$total)
+
+
+}
+
+Post_Hoc_FullPath_ConsTraj_LR_V1 = data.frame(Sq_Error_1 = rep(0,100), Sq_Error_2 = rep(0,100),
+                                              In_CI_1 = rep(0,100), In_CI_2 = rep(0,100),
+                                              Time = rep(0,100))
+i=1
+for(i in 1:100){
+
+
+
+  Post_Hoc_FullPath_ConsTraj_LR_V1[i,] = result <- tryCatch({
+    run_FullPaths_ConsTraj_Sim()
+  },
+  warning = function(w) {
+    # 2. Code to run if a warning is generated
+    message("A warning occurred: ", w$message)
+    return(c(0,0,0,0,0))
+  },
+  error = function(e) {
+    # 3. Code to run if an error is generated
+    message("An error was caught safely: ", e$message)
+    return(c(0,0,0,0,0)) # Returns NA instead of crashing the script
+  })
+
+  print(str_c('Done with run ',i, '.'))
+
+
+}
+
+
+log_coef1 = rnorm(1, 0, 0.35)
+log_coef2 = rnorm(1, 0, 0.35)
+
+sampledHSGP = list(log_z = list(matrix(c(log_coef1,0,0,0), nrow = 2), matrix(c(log_coef2,0,0,0), nrow = 2)),
+                   log_k = rep(1,2),
+                   log_l = rep(1/sqrt(2*pi),2))
+
+rand_res = 100
+
+sampledParticles = samplePhySpaceParticles(10, startTime = 0, n_obs = 100*rand_res, border = c(-10,-10,10,10), borderBuffer = 0.2, baseVectorFields, sampledHSGP,
+                                              M = 1, t_step_mean = 0.01, vel_sigma = 0.5, pos_sigma = 0.1)
+
+sampledParticles_Sub = sampledParticles[1:1000 * rand_res - (rand_res-1),]
+
+sampledParticles_Sub_List = list()
+
+for(i in 1:10){
+
+  sampledParticles_Sub_List[[i]] = sampledParticles_Sub[1:100 + 100*(i-1),]
+
+
+}
+
+ggplot(sampledParticles_Sub, aes(x = X1, y = X2, color = Particle)) + geom_point()
+
+drifter_names = unique(sampledParticles_Sub$Particle)
+drifter_num_points = c()
+i=1
+for(i in 1:length(drifter_names)){
+
+  cur_drifter = sampledParticles_Sub[sampledParticles_Sub$Particle == drifter_names[i],]
+
+  drifter_num_points = c(drifter_num_points, nrow(cur_drifter))
+
+}
+
+N_quad = 1000
+
+D = length(drifter_names)
+N = drifter_num_points
+K_drifter = 10
+
+p_x_base = list()
+p_y_base = list()
+v_x_base = list()
+
+v_y_base = list()
+
+Phi_List = list()
+Phi_d_List = list()
+Phi_data_List = list()
+
+t_grid_list = list()
+Lts = rep(0,D)
+drifter_boundaries = matrix(nrow = D, ncol = 2)
+d=1
+for(d in 1:D){
+
+  curDrifter = sampledParticles_Sub[sampledParticles_Sub$Particle == drifter_names[d],]
+  cur_boundary = c(min(curDrifter$t),max(curDrifter$t))
+  cur_quad_grid = seq(cur_boundary[1], cur_boundary[2], length.out = N_quad)
+
+  cur_x_spline = splinefun(x = curDrifter$t, y = curDrifter$X1, method = 'fmm')
+  p_x_base[[d]] = cur_x_spline(cur_quad_grid)
+  v_x_base[[d]] = cur_x_spline(cur_quad_grid, deriv = 1)
+
+  cur_y_spline = splinefun(x = curDrifter$t, y = curDrifter$X2, method = 'fmm')
+  p_y_base[[d]] = cur_y_spline(cur_quad_grid)
+  v_y_base[[d]] = cur_y_spline(cur_quad_grid, deriv = 1)
+
+  Phi_List[[d]] = bSpline(x = cur_quad_grid, df = K_drifter, intercept = F)
+  Phi_d_List[[d]] = bSpline(x = cur_quad_grid, df = K_drifter, intercept = F, derivs = 1)
+
+  Phi_data_List[[d]] = bSpline(x = curDrifter$t, df = K_drifter, intercept = F)
+
+  t_grid_list[[d]] = cur_quad_grid
+  Lts[d] = diff(cur_boundary)
+
+  drifter_boundaries[d,] = cur_boundary
+
+  svMisc::progress(d, D)
+
+}
+d=1
+plotPriorDrifter = function(d){
+
+  curDrifter = sampledParticles_Sub[sampledParticles_Sub$Particle == drifter_names[d],]
+
+  prior_pos_x = p_x_base[[d]]
+  prior_pos_y = p_y_base[[d]]
+
+  ggplot() + geom_line(aes(x = t_grid_list[[d]], y = prior_pos_x), color = 'blue') +
+    geom_point(data = curDrifter, aes(x = t, y = X1), color = 'black', size = 1)
+
+  # ggplot() + geom_line(aes(x = t_grid_list[[d]], y = prior_pos_y), color = 'blue') +
+  #            geom_point(data = curDrifter, aes(x = t, y = X2), color = 'black', size = 0.1)
+  #
+  ggplot() + geom_path(aes(x = prior_pos_x, y = prior_pos_y), color = 'blue') +
+    geom_point(data = curDrifter, aes(x = X1, y = X2), color = 'black', size = 1)
+}
+
+plotPriorDrifter(1)
+
+full_data = list(
+  D = D,
+  N_quad = N_quad,
+
+  K = rep(K_drifter, D),
+  total_K = K_drifter*D,
+
+  N_drifter = drifter_num_points,
+  total_data = sum(drifter_num_points),
+
+  total_Z = sum(K_drifter*drifter_num_points),
+
+  p_x_base = p_x_base,
+  p_y_base = p_y_base,
+  v_x_base = v_x_base,
+  v_y_base = v_y_base,
+
+  Phi_flat = do.call(cbind, Phi_List),
+  Phi_d_flat = do.call(cbind, Phi_d_List),
+
+  Phi_data_elements = unlist(Phi_data_List),
+
+  drifter_boundaries = drifter_boundaries,
+
+  N_models = 2
+)
+
+FullPaths_ConTraj_model = cmdstan_model('FullPaths_ConstantTrajectories.stan', cpp_options = list(stan_threads = T), force_recompile = T)
+
+FullPaths_ConTraj_fit = FullPaths_ConTraj_model$variational(
+  data = full_data,
+  threads = max_cores/4,
+  iter = 100000,
+  draws = 1000, show_messages = T, init = 0#, algorithm = "fullrank"
+)
+
+FullPaths_ConTraj_HMC = FullPaths_ConTraj_model$sample(
+  data = full_data,
+  chains = 4,
+  parallel_chains = 4,
+  threads_per_chain = max_cores/4,
+  show_messages = T, init = 0
+)
+
+plot(FullPaths_ConTraj_HMC$draws('w_x[1]', format = 'draws_matrix'))
+
+FullPaths_ConTraj_VI_sum = FullPaths_ConTraj_fit$summary()
+FullPaths_ConTraj_HMC_sum = FullPaths_ConTraj_HMC$summary()
+
+plot(FullPaths_ConTraj_HMC_sum$mean[-1], FullPaths_ConTraj_VI_sum$mean[-c(1,2)])
+
+plot(FullPaths_ConTraj_HMC_sum$sd[-1], FullPaths_ConTraj_VI_sum$sd[-c(1,2)])
+
+abline(a=0, b=1)
+plot(FullPaths_ConTraj_HMC_sum$sd[-1], diag(lrvb_cov_H))
+
+diag(lrvb_cov_H)
+
+FullPaths_ConTraj_HMC_sum$variable
+
+FullPaths_ConTraj_HMC_sum$rhat[-1]
+
+log_coef1_draws = FullPaths_ConTraj_fit$draws('log_coef1', format = 'draws_matrix')
+log_coef2_draws = FullPaths_ConTraj_fit$draws('log_coef2', format = 'draws_matrix')
+
+hist(log_coef2_draws)
+
+sigma_pos_draws = FullPaths_ConTraj_fit$draws('sigma_pos', format = 'draws_matrix')
+sigma_vel_draws = FullPaths_ConTraj_fit$draws('sigma_vel', format = 'draws_matrix')
+
+w_x_draws = FullPaths_ConTraj_fit$draws('w_x', format = 'draws_matrix')
+w_y_draws = FullPaths_ConTraj_fit$draws('w_y', format = 'draws_matrix')
+
+plotPostDrifter = function(d){
+
+  curDrifter = sampledParticles_Sub[sampledParticles_Sub$Particle == drifter_names[d],]
+
+  post_draws_pos_x = w_x_draws[,1:K_drifter + (d-1)*K_drifter] %*% t(Phi_List[[d]])
+  post_draws_pos_y = w_y_draws[,1:K_drifter + (d-1)*K_drifter] %*% t(Phi_List[[d]])
+
+  post_mean_path_x = p_x_base[[d]] + as.numeric(colMeans(post_draws_pos_x))
+  post_mean_path_y = p_y_base[[d]] + as.numeric(colMeans(post_draws_pos_y))
+
+  # post_lower_path_x = p_x_base[[d]] + as.numeric(apply(post_draws_pos_x, MARGIN = 2, FUN = quantile, p = 0.025))
+  # post_lower_path_y = p_y_base[[d]] + as.numeric(apply(post_draws_pos_y, MARGIN = 2, FUN = quantile, p = 0.025))
+  #
+  # post_upper_path_x = p_x_base[[d]] + as.numeric(apply(post_draws_pos_x, MARGIN = 2, FUN = quantile, p = 0.975))
+  # post_upper_path_y = p_y_base[[d]] + as.numeric(apply(post_draws_pos_y, MARGIN = 2, FUN = quantile, p = 0.975))
+  #
+  # ggplot() + geom_line(aes(x = t_grid_list[[d]], y = post_mean_path_x), color = 'blue') +
+  #   geom_line(aes(x = t_grid_list[[d]], y = post_lower_path_x), color = 'red', alpha = 0.2) +
+  #   geom_line(aes(x = t_grid_list[[d]], y = post_upper_path_x), color = 'red', alpha = 0.2) +
+  #   geom_point(data = curDrifter, aes(x = t, y = X1), color = 'black', size = 1)
+
+
+  # ggplot() + geom_line(aes(x = t_grid_list[[d]], y = post_mean_path_y), color = 'blue') +
+  #            geom_point(data = curDrifter, aes(x = t, y = X2), color = 'black', size = 0.1)
+  #
+  ggplot() + geom_path(aes(x = as.numeric(post_mean_path_x), y = as.numeric(post_mean_path_y)), color = 'blue') +
+    geom_point(data = curDrifter, aes(x = X1, y = X2), color = 'black', size = 1)
+
+}
+d=1
+
+plotPriorDrifter(2)
+plotPostDrifter(2)
+
+checkDrifterVel = function(d){
+
+  curDrifter = sampledParticles_Sub[sampledParticles_Sub$Particle == drifter_names[d],]
+
+  post_draws_pos_x = w_x_draws[,1:K_drifter + (d-1)*K_drifter] %*% t(Phi_List[[d]])
+  post_draws_pos_y = w_y_draws[,1:K_drifter + (d-1)*K_drifter] %*% t(Phi_List[[d]])
+
+  post_draws_vel_x = w_x_draws[,1:K_drifter + (d-1)*K_drifter] %*% t(Phi_d_List[[d]])
+  post_draws_vel_y = w_y_draws[,1:K_drifter + (d-1)*K_drifter] %*% t(Phi_d_List[[d]])
+
+  post_mean_pos_x = p_x_base[[d]] + as.numeric(colMeans(post_draws_pos_x))
+  post_mean_pos_y = p_y_base[[d]] + as.numeric(colMeans(post_draws_pos_y))
+
+  post_mean_vel_x = v_x_base[[d]] + as.numeric(colMeans(post_draws_vel_x))
+  post_mean_vel_y = v_y_base[[d]] + as.numeric(colMeans(post_draws_vel_y))
+
+  post_mean_pos_mat = matrix(c(post_mean_pos_x, post_mean_pos_y), nrow = 1000, byrow = F)
+
+  Traj_1_mean = mean(exp(log_coef1_draws))
+  Traj_2_mean = mean(exp(log_coef2_draws))
+
+  quad_grid = seq(min(curDrifter$t), max(curDrifter$t), length.out = N_quad)
+
+  eval_points = matrix(c(quad_grid, post_mean_pos_x, post_mean_pos_y), nrow = N_quad, byrow = F)
+
+  ## Geo NN Eval
+
+  baseVFs = t(apply(eval_points, MARGIN = 1, FUN = function(row){baseVectorFields(row[1], row[-1])}))
+
+  ## Est VF
+
+  Est_VF_long = baseVFs[,1] * Traj_1_mean + baseVFs[,3] * Traj_2_mean
+  Est_VF_lat = baseVFs[,2] * Traj_1_mean + baseVFs[,4] * Traj_2_mean
+
+  cur_post_vel_MSE = mean(c((post_mean_vel_x - Est_VF_long)^2, (post_mean_vel_y - Est_VF_lat)^2))
+
+
+  #### Base Path
+
+  prior_pos_x = p_x_base[[d]]
+  prior_pos_y = p_y_base[[d]]
+
+  prior_vel_x = v_x_base[[d]]
+  prior_vel_y = v_y_base[[d]]
+
+  prior_eval_points = matrix(c(quad_grid, prior_pos_x, prior_pos_y), nrow = N_quad, byrow = F)
+
+  prior_baseVFs = t(apply(prior_eval_points, MARGIN = 1, FUN = function(row){baseVectorFields(row[1], row[-1])}))
+
+  ## Est VF
+
+  prior_Est_VF_long =  prior_baseVFs[,1] + prior_baseVFs[,3]
+  prior_Est_VF_lat = prior_baseVFs[,2] + prior_baseVFs[,4]
+
+  cur_prior_vel_MSE = mean(c((prior_vel_x - prior_Est_VF_long)^2, (prior_vel_y - prior_Est_VF_lat)^2))
+
+  c(cur_post_vel_MSE, cur_prior_vel_MSE)
+
+}
+
+checkDrifterVel(1)
+
+
+
+u_draws <- FullPaths_ConTraj_fit$unconstrain_draws(format = "draws_matrix")
+
+# 2. Calculate the mean of each unconstrained parameter directly
+# This entirely skips the list-formatting nightmare and gives you the exact vector you need
+upars <- colMeans(u_draws)
+u_vars = apply(u_draws, MARGIN = 2, FUN = var)
+
+# 3. Pass that vector directly into the Hessian method
+hessian_out <- FullPaths_ConTraj_fit$hessian(upars)
+H <- hessian_out$hessian
+
+
+lrvb_cov_H = solve(-H)
+
+log_coef1_var_H = lrvb_cov_H[which(colnames(u_draws) == 'log_coef1'),which(colnames(u_draws) == 'log_coef1')]
+log_coef2_var_H = lrvb_cov_H[which(colnames(u_draws) == 'log_coef2'),which(colnames(u_draws) == 'log_coef2')]
+
+mean(log_coef1_draws) - 1.96*sqrt(log_coef1_var_H)
+mean(log_coef1_draws) + 1.96*sqrt(log_coef1_var_H)
+
+mean(log_coef2_draws) - 1.96*sqrt(log_coef2_var_H)
+mean(log_coef2_draws) + 1.96*sqrt(log_coef2_var_H)
+
+plot(FullPaths_ConTraj_HMC_sum$sd[-c(1,402)]^2, diag(lrvb_cov_H)[-401] )
+plot(FullPaths_ConTraj_HMC_sum$sd[-c(1,402)]^2, u_vars[-401] )
 
