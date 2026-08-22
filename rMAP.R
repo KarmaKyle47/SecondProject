@@ -933,7 +933,7 @@ evaluate2DCosine = function(beta_mat, pos_mat, border){
   for(i in 0:M){
     for(j in 0:M){
 
-      Phi[,i*(M+1) + j + 1] = sqrt(2)^(i==0) * sqrt(2)^(j==0) * cos(omega[1:M+1]*(pos_mat[,1] - border[1])/Lx) * cos(omega[1:M+1]*(pos_mat[,2] - border[2])/Ly)
+      Phi[,i*(M+1) + j + 1] = sqrt(2)^(i!=0) * sqrt(2)^(j!=0) * cos(omega[i+1]*(pos_mat[,1] - border[1])/Lx) * cos(omega[j+1]*(pos_mat[,2] - border[2])/Ly)
 
     }
   }
@@ -952,7 +952,7 @@ evaluate2DCosine(beta_mat = matrix(c(1,0.3,0.6,-2,
 TrajWeightedBaseVectorFields_2D_Cosine = function(pos_t_mat, beta_mat, baseVectorFields_Vec, border){
 
 
-  log_Traj = evaluate2DCosine(beta_mat, pos_t_mat, border)
+  log_Traj = evaluate2DCosine(beta_mat = beta_mat, pos_mat = pos_t_mat[,c(2,3)], border = border)
   log_Traj_mat = cbind(log_Traj, log_Traj)
 
   baseVF = baseVectorFields_Vec(pos_t_mat)
@@ -1205,8 +1205,22 @@ ggplot() + geom_path(data = test_particle, aes(x = X1, y = X2), color = 'red') +
 #9. Lord help me and let this work PLEASE
 
 
-sampledParticles = samplePhySpaceParticles(n_particles = 1, startTime = 0, n_obs = 100*10, border = c(-5,-5,5,5), borderBuffer = 0.4, baseVectorFields, OneTraj,
+sampledParticles = samplePhySpaceParticles(n_particles = 100, startTime = 0, n_obs = 20*10, border = c(-5,-5,5,5), borderBuffer = 0.4, baseVectorFields, OneTraj,
                                            M = 2, t_step_mean = 0.001, vel_sigma = 0.1, pos_sigma = 0)
+
+sampledParticles_Sub = sampledParticles[1:(100*20) * 10 - (10-1),]
+ggplot(sampledParticles_Sub, aes(x = X1, y = X2, color = Particle)) + geom_point()
+
+sim_data_list = list()
+
+for(d in 1:100){
+
+  curDrifter = sampledParticles_Sub[sampledParticles_Sub$Particle == str_c('Particle',d),]
+
+  sim_data_list[[d]] = curDrifter[,c(1,2,3)]
+
+
+}
 
 sim_data = sampledParticles_Sub[,1:3]
 pos_sd = 0.01
@@ -1221,19 +1235,29 @@ traj_eval_grid = expand.grid(seq(-5,5, length.out = 100), seq(-5,5, length.out =
 #Need to sample lots of drifters around the border to get a better reading on the trajectory
 
 
-sample_rMAP_bspline = function(sim_data, pos_sd = 0.001, vel_sd = 0.1, M = 2, prior_k = 0.35, prior_l = 1, baseVectorFields_Vec, border, N_prop_steps = 10, traj_eval_grid){
+sample_rMAP_trajectories = function(sim_data_list, pos_sd = 0.001, vel_sd = 0.1, M = 2, prior_k = 0.35, prior_l = 1, baseVectorFields_Vec, border, N_prop_steps = 10, traj_eval_grid){
 
-  N = nrow(sim_data)
+  N_v = as.numeric(lapply(sim_data_list, nrow))
+  N = sum(N_v)
+  D = length(N_v)
 
   # Add positional error
 
-  x_pos_err = rnorm(N, 0, pos_sd)
-  y_pos_err = rnorm(N, 0, pos_sd)
+  t_err = lapply(N_v, FUN = rep, x = 0)
+  x_pos_err = lapply(X = N_v, FUN = rnorm, mean = 0, sd = pos_sd)
+  y_pos_err = lapply(X = N_v, FUN = rnorm, mean = 0, sd = pos_sd)
 
-  aug_data = sim_data + matrix(c(rep(0, N), x_pos_err, y_pos_err), byrow = F, ncol = 3)
+  err_list = lapply(1:D, FUN = function(i, l1, l2, l3){cbind(l1[[i]],l2[[i]],l3[[i]])}, l1 = t_err, l2 = x_pos_err, l3 = y_pos_err)
 
-  rand_vel_1 = matrix(rnorm((N-1)*N_prop_steps, 0, vel_sd), nrow = N_prop_steps, ncol = N-1)
-  rand_vel_2 = matrix(rnorm((N-1)*N_prop_steps, 0, vel_sd), nrow = N_prop_steps, ncol = N-1)
+  aug_data_list = lapply(1:D, FUN = function(i, l1, l2){l1[[i]] + l2[[i]]}, l1 = sim_data_list, l2 = err_list)
+
+  aug_data_starts = do.call(rbind, lapply(1:D, FUN = function(i, l){l[[i]][1:(N_v[i]-1),]}, l = aug_data_list))
+  aug_data_ends = do.call(rbind, lapply(1:D, FUN = function(i, l){l[[i]][-1,]}, l = aug_data_list))
+
+  N_advects = nrow(aug_data_starts)
+
+  rand_vel_1 = matrix(rnorm(N_advects*N_prop_steps, 0, vel_sd), nrow = N_prop_steps, ncol = N_advects)
+  rand_vel_2 = matrix(rnorm(N_advects*N_prop_steps, 0, vel_sd), nrow = N_prop_steps, ncol = N_advects)
 
   omega = (1:M-1)*pi
   spec_den = sqrt(2*pi)*prior_l*exp(-0.5*prior_l^2*omega^2)
@@ -1254,12 +1278,12 @@ sample_rMAP_bspline = function(sim_data, pos_sd = 0.001, vel_sd = 0.1, M = 2, pr
     beta_mat <- cbind(beta_1, beta_2)
 
     # Pre-calculate time step vectors for all i
-    t_steps <- (aug_data$t[-1] - aug_data$t[-N]) / N_prop_steps
+    t_steps <- (aug_data_ends$t - aug_data_starts$t) / N_prop_steps
     sqrt_t_steps <- sqrt(t_steps)
 
     # Initialize the starting positions for all (N-1) segments at once
     # curPos_mat is an (N-1) x 3 matrix
-    curPos_mat <- as.matrix(aug_data[1:(N-1), 1:3])
+    curPos_mat <- aug_data_starts
 
     # Inner loop: Propagate all segments simultaneously
     for(j in 1:N_prop_steps) {
@@ -1286,10 +1310,10 @@ sample_rMAP_bspline = function(sim_data, pos_sd = 0.001, vel_sd = 0.1, M = 2, pr
     }
 
     # Fast Likelihood calculation using sum of squares instead of matrix multiplication
-    diff_1 <- curPos_mat[, 2] - aug_data$X1[-1]
-    diff_2 <- curPos_mat[, 3] - aug_data$X2[-1]
+    diff_1 <- curPos_mat[, 2] - aug_data_ends$X1
+    diff_2 <- curPos_mat[, 3] - aug_data_ends$X2
 
-    likelihood_loss_pos <- sum(diff_1^2 + diff_2^2) / (2 * (N - 1) * pos_sd^2)
+    likelihood_loss_pos <- sum(diff_1^2 + diff_2^2) / (2 * (N_advects) * pos_sd^2)
 
     # Fast Prior calculation using crossprod
     d_beta1 <- beta_1 - start_beta_1
@@ -1325,12 +1349,12 @@ sample_rMAP_bspline = function(sim_data, pos_sd = 0.001, vel_sd = 0.1, M = 2, pr
   M_sq <- M^2
 
   # Pre-calculate time step vectors for all i
-  t_steps <- (aug_data$t[-1] - aug_data$t[-N]) / N_prop_steps
+  t_steps <- (aug_data_ends$t - aug_data_starts$t) / N_prop_steps
   sqrt_t_steps <- sqrt(t_steps)
 
   # Initialize the starting positions for all (N-1) segments at once
   # curPos_mat is an (N-1) x 3 matrix
-  curPos_mat <- as.matrix(aug_data[1:(N-1), 1:3])
+  curPos_mat <- aug_data_starts
 
   # Inner loop: Propagate all segments simultaneously
   for(j in 1:N_prop_steps) {
@@ -1357,10 +1381,10 @@ sample_rMAP_bspline = function(sim_data, pos_sd = 0.001, vel_sd = 0.1, M = 2, pr
   }
 
   # Fast Likelihood calculation using sum of squares instead of matrix multiplication
-  diff_1 <- curPos_mat[, 2] - aug_data$X1[-1]
-  diff_2 <- curPos_mat[, 3] - aug_data$X2[-1]
+  diff_1 <- curPos_mat[, 2] - aug_data_ends$X1
+  diff_2 <- curPos_mat[, 3] - aug_data_ends$X2
 
-  post_likelihood_loss_pos <- sum(diff_1^2 + diff_2^2) / (2 * (N - 1) * pos_sd^2)
+  post_likelihood_loss_pos <- sum(diff_1^2 + diff_2^2) / (2 * (N_advects) * pos_sd^2)
 
   # Fast Prior calculation using crossprod
   d_beta1 <- post_beta_1 - start_beta_1
@@ -1373,26 +1397,104 @@ sample_rMAP_bspline = function(sim_data, pos_sd = 0.001, vel_sd = 0.1, M = 2, pr
 
 }
 
-
-post_traj_grid_plot = cbind(traj_eval_grid, post_traj_grid)
-
-ggplot(post_traj_grid_plot, aes(x=  Var1, y = Var2, color = log(post_beta_1))) + geom_point(size = 5)
+traj_eval_grid = expand.grid(seq(-2,2, length.out = 100), seq(-2,2, length.out = 100))
 
 
+test_sample = sample_rMAP_trajectories(sim_data = sim_data_list, pos_sd = 0.001, vel_sd = 0.1, M = 2, prior_k = 0.35, prior_l = 1, baseVectorFields_Vec = baseVectorFields_Vec, border = c(-3,-3,3,3), N_prop_steps = 10, traj_eval_grid = traj_eval_grid)
+
+post_traj_grid_plot = cbind(traj_eval_grid, test_sample[[4]])
+
+test_sample[[4]]
+
+ggplot() + geom_point(data = post_traj_grid_plot, aes(x=  Var1, y = Var2, color = abs(log(post_beta_1)) < 0.01), size = 5) + geom_point(data = sim_data, aes(x = X1, y = X2))
+ggplot() + geom_point(data = post_traj_grid_plot, aes(x=  Var1, y = Var2, color = abs(log(post_beta_2)) < 0.01), size = 5) + geom_point(data = sim_data, aes(x = X1, y = X2))
+
+#running test
+
+M=2
+
+beta_1_post_mat = matrix(nrow = 100, ncol = M^2)
+beta_2_post_mat = matrix(nrow = 100, ncol = M^2)
+
+post_traj_eval_1_list = list()
+post_traj_eval_2_list = list()
+
+post_like_pos = rep(0,100)
+post_like_prior = rep(0,100)
+
+svMisc::progress(0,100)
+
+for(i in 1:100){
+
+  cur_draw = sample_rMAP_trajectories(sim_data = sim_data_list, pos_sd = sqrt(sqrt(var(post_like_full)/2.83))*0.001, vel_sd = 0.1, M = 2, prior_k = 0.35, prior_l = 1, baseVectorFields_Vec = baseVectorFields_Vec, border = c(-2,-2,2,2), N_prop_steps = 5, traj_eval_grid = traj_eval_grid)
+
+  #Metropolis
+
+  if(i > 1){
+
+    prev_LL =
+
+  }
+
+  beta_1_post_mat_V2[i,] = cur_draw[[1]][,1]
+  beta_2_post_mat_V2[i,] = cur_draw[[1]][,2]
+
+  post_like_pos_V2[i] = cur_draw[[2]]
+  post_like_prior_V2[i] = cur_draw[[3]]
+
+  post_traj_eval_1_list_V2[[i]] = cur_draw[[4]][,1]
+  post_traj_eval_2_list_V2[[i]] = cur_draw[[4]][,2]
+
+
+  svMisc::progress(i,100)
+
+}
+
+plot(post_like_pos_V2 + post_like_prior_V2)
+
+post_like_full = post_like_pos_V2 + post_like_prior_V2
+
+acc_prob = rep(1,100)
+
+for(i in 2:100){
+
+  cur_like = post_like_full[i]
+  prev_like = post_like_full[i-1]
+
+  acc_prob[i] = min(1, exp(cur_like - prev_like))
+
+}
+
+var(post_like_full)
+
+mean(acc_prob)
+
+hist(beta_1_post_mat_V2[,4])
+quantile(beta_1_post_mat_V2[,4], probs = c(0.025, 0.975))
+
+
+test_sample
 
 
 
 
 
 
+exp(0.05)
+
+sqrt(sqrt(var(post_like_full)/2.83))
 
 
 
+post_draws_traj_eval_1_V2 = do.call(cbind, post_traj_eval_1_list_V2)
+post_draws_traj_eval_2_V2 = do.call(cbind, post_traj_eval_2_list_V2)
 
+CI_traj_1_V2 = t(apply(post_draws_traj_eval_1_V2, MARGIN = 1, FUN = quantile, probs = c(0.025, 0.975)))
+CI_traj_2_V2 = t(apply(post_draws_traj_eval_2_V2, MARGIN = 1, FUN = quantile, probs = c(0.025, 0.975)))
 
+mean(CI_traj_1_V2[,1] <= 1 & CI_traj_1_V2[,2] >= 1)
 
-
-
+mean(CI_traj_2_V2[,1] <= 1 & CI_traj_2_V2[,2] >= 1)
 
 
 
