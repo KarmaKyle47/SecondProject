@@ -973,7 +973,7 @@ baseVectorFields_Vec = function(pos_t_mat){
   f1x = pos_t_mat[,3] / c
   f1y = -1*pos_t_mat[,2] / c
 
-  f2x = pos_mat[,2] / c
+  f2x = pos_t_mat[,2] / c
   f2y = pos_t_mat[,3] / c
 
   cbind(f1x,f2x, f1y, f2y)
@@ -1106,14 +1106,16 @@ baseVectorFields = function(t, curPos){
 }
 
 rand_res = 100
+OneTraj = list(log_z = list(matrix(rep(0,4), nrow=2), matrix(rep(0,4), nrow=2)), log_k = c(0,0), log_l = c(100,100))
 
+sqrt(0.01)
 
-sampledParticles = samplePhySpaceParticles(n_particles = 1, startTime = 0, n_obs = 100, border = c(-5,-5,5,5), borderBuffer = 0.4, baseVectorFields, OneTraj,
-                                           M = 2, t_step_mean = 0.01, vel_sigma = 0.1, pos_sigma = 0)
+sampledParticles = samplePhySpaceParticles(n_particles = 1, startTime = 0, n_obs = 100*10, border = c(-5,-5,5,5), borderBuffer = 0.4, baseVectorFields, OneTraj,
+                                           M = 2, t_step_mean = 0.001, vel_sigma = 0.1, pos_sigma = 0)
 
 ggplot(sampledParticles, aes(x = X1, y = X2, color = Particle)) + geom_point()
 
-sampledParticles_Sub = sampledParticles
+sampledParticles_Sub = sampledParticles[1:100 * 10 - (10-1),]
 
 ggplot(sampledParticles_Sub, aes(x = X1, y = X2)) + geom_point()
 
@@ -1132,7 +1134,7 @@ beta_list = OneTraj$log_z
 
 for(i in 1:100){
 
-  cur_draw = sample_rMAP_bspline(sim_data = sampledParticles_Sub[,1:3], pos_sd = 0.01, K_base = 10, K_full = 10, N_quad = N_quad, vel_sd = 0.1, pos_selection_sd = 0.1, beta_mat = matrix(rep(0,8), nrow = 4), baseVectorFields_Vec = baseVectorFields_Vec, border = c(-5,-5,5,5))
+  cur_draw = sample_rMAP_bspline(sim_data = sampledParticles_Sub[,1:3], pos_sd = 0.01, K_base = 10, K_full = 10, N_quad = N_quad, vel_sd = 0.01, pos_selection_sd = 0.1, beta_mat = matrix(rep(0,8), nrow = 4), baseVectorFields_Vec = baseVectorFields_Vec, border = c(-5,-5,5,5))
 
   #Metropolis
 
@@ -1151,7 +1153,7 @@ for(i in 1:100){
 
 plot(post_like_pos+post_like_vel+post_like_prior)
 
-median(post_like_vel)
+median(post_like_pos)
 
 t_quad = seq(min(sampledParticles_Sub$t),max(sampledParticles_Sub$t), length.out = N_quad)
 
@@ -1182,6 +1184,217 @@ ggplot() + geom_line(data = test_particle, aes(x = t, y = X2), color = 'red') + 
 ggplot() + geom_path(data = test_particle, aes(x = X1, y = X2), color = 'red') + #geom_line(aes(x = t_quad, y = rowMeans(pos_x_post)), color = 'black') +
   geom_path(aes(x = apply(pos_x_post, 1, quantile, p = 0.025), y = apply(pos_y_post, 1, quantile, p = 0.025)), color = 'blue') +
   geom_path(aes(x = apply(pos_x_post, 1, quantile, p = 0.975), y = apply(pos_y_post, 1, quantile, p = 0.975)), color = 'blue')
+
+
+
+
+
+#rMAP but we go for the trajectories themselves
+
+#1. Add positional error to the data
+#2. Get the basis to evaluate the trajectory surface at a given position
+#3. Add velocity error to the mixing fields by randomly sampling the diffusion terms, but keeping them fixed for optimization purposes
+#4. The optimization function is going to be only positional error differences
+#     > How well can the mixing vector field advect the particle to the next point in space
+#5. The starting trajectory comes from an HSGP, but then we immediately extract the beta
+#   and work in the beta space
+#6. Optimize for the betas with the rMAP approach
+#7. After getting multiple trajectory samples, we can get optimal paths which interpolate
+#   (maybe not interpolate) that align with trajectory functions from the posterior
+#8. This is a trajectory then path approach, so no need to iterate
+#9. Lord help me and let this work PLEASE
+
+
+sampledParticles = samplePhySpaceParticles(n_particles = 1, startTime = 0, n_obs = 100*10, border = c(-5,-5,5,5), borderBuffer = 0.4, baseVectorFields, OneTraj,
+                                           M = 2, t_step_mean = 0.001, vel_sigma = 0.1, pos_sigma = 0)
+
+sim_data = sampledParticles_Sub[,1:3]
+pos_sd = 0.01
+vel_sd = 0.1
+N_prop_steps = 10
+border = c(-5,-5,5,5)
+
+traj_eval_grid = expand.grid(seq(-5,5, length.out = 100), seq(-5,5, length.out = 100))
+
+#Should work and is pretty quick...
+
+#Need to sample lots of drifters around the border to get a better reading on the trajectory
+
+
+sample_rMAP_bspline = function(sim_data, pos_sd = 0.001, vel_sd = 0.1, M = 2, prior_k = 0.35, prior_l = 1, baseVectorFields_Vec, border, N_prop_steps = 10, traj_eval_grid){
+
+  N = nrow(sim_data)
+
+  # Add positional error
+
+  x_pos_err = rnorm(N, 0, pos_sd)
+  y_pos_err = rnorm(N, 0, pos_sd)
+
+  aug_data = sim_data + matrix(c(rep(0, N), x_pos_err, y_pos_err), byrow = F, ncol = 3)
+
+  rand_vel_1 = matrix(rnorm((N-1)*N_prop_steps, 0, vel_sd), nrow = N_prop_steps, ncol = N-1)
+  rand_vel_2 = matrix(rnorm((N-1)*N_prop_steps, 0, vel_sd), nrow = N_prop_steps, ncol = N-1)
+
+  omega = (1:M-1)*pi
+  spec_den = sqrt(2*pi)*prior_l*exp(-0.5*prior_l^2*omega^2)
+
+  prior_beta_sigma = diag(c(prior_k^2 * diag(spec_den) %*% matrix(rep(1,4), nrow = 2) %*% diag(spec_den)))
+
+  start_beta_1 = mvrnorm(1, rep(0, M^2), Sigma = prior_beta_sigma)
+  start_beta_2 = mvrnorm(1, rep(0, M^2), Sigma = prior_beta_sigma)
+
+  start_beta = c(start_beta_1, start_beta_2)
+
+  # Optimize for the best w that matched the mixing fields
+  rMAP_loss = function(beta){
+
+    M_sq <- M^2
+    beta_1 <- beta[1:M_sq]
+    beta_2 <- beta[(M_sq + 1):(2 * M_sq)]
+    beta_mat <- cbind(beta_1, beta_2)
+
+    # Pre-calculate time step vectors for all i
+    t_steps <- (aug_data$t[-1] - aug_data$t[-N]) / N_prop_steps
+    sqrt_t_steps <- sqrt(t_steps)
+
+    # Initialize the starting positions for all (N-1) segments at once
+    # curPos_mat is an (N-1) x 3 matrix
+    curPos_mat <- as.matrix(aug_data[1:(N-1), 1:3])
+
+    # Inner loop: Propagate all segments simultaneously
+    for(j in 1:N_prop_steps) {
+
+      # Evaluate drift for all (N-1) positions simultaneously
+      # Ensure this function is updated to return an (N-1) x 2 matrix
+      cur_drift_mat <- TrajWeightedBaseVectorFields_2D_Cosine(
+        pos_t_mat = curPos_mat,
+        beta_mat = beta_mat,
+        baseVectorFields_Vec = baseVectorFields_Vec,
+        border = border
+      )
+
+      # Extract diffusion for all N-1 segments for step j
+      cur_diffusion_vec_1 <- rand_vel_1[j,]
+      cur_diffusion_vec_2 <- rand_vel_2[j,]
+
+      # Update Time (Column 1)
+      curPos_mat[, 1] <- curPos_mat[, 1] + t_steps
+
+      # Update X and Y positions (Columns 2 and 3)
+      curPos_mat[, 2] <- curPos_mat[, 2] + cur_drift_mat[, 1] * t_steps + cur_diffusion_vec_1 * sqrt_t_steps
+      curPos_mat[, 3] <- curPos_mat[, 3] + cur_drift_mat[, 2] * t_steps + cur_diffusion_vec_2 * sqrt_t_steps
+    }
+
+    # Fast Likelihood calculation using sum of squares instead of matrix multiplication
+    diff_1 <- curPos_mat[, 2] - aug_data$X1[-1]
+    diff_2 <- curPos_mat[, 3] - aug_data$X2[-1]
+
+    likelihood_loss_pos <- sum(diff_1^2 + diff_2^2) / (2 * (N - 1) * pos_sd^2)
+
+    # Fast Prior calculation using crossprod
+    d_beta1 <- beta_1 - start_beta_1
+    d_beta2 <- beta_2 - start_beta_2
+
+    prior_loss <- crossprod(d_beta1, prior_beta_sigma %*% d_beta1) +
+      crossprod(d_beta2, prior_beta_sigma %*% d_beta2)
+
+    return(as.numeric(likelihood_loss_pos + prior_loss))
+
+  }
+
+  # Run the optimizer
+  opt_result <- optim(
+    par = start_beta,             # Starting values
+    fn = rMAP_loss,           # Your loss function
+    method = "BFGS",          # Unconstrained quasi-Newton
+    control = list(
+      maxit = 1000,           # Increase max iterations (default is 100)
+      trace = 1,              # Prints progress to the console
+      REPORT = 10             # How often to print progress
+    )
+  )
+
+  post_beta_1 = opt_result$par[1:(M^2)]
+  post_beta_2 = opt_result$par[1:(M^2)+(M^2)]
+  post_beta_mat = cbind(post_beta_1, post_beta_2)
+
+  post_traj_grid = exp(evaluate2DCosine(beta_mat = post_beta_mat, pos_mat = traj_eval_grid, border = border))
+
+  #Eval Optimal Traj
+
+  M_sq <- M^2
+
+  # Pre-calculate time step vectors for all i
+  t_steps <- (aug_data$t[-1] - aug_data$t[-N]) / N_prop_steps
+  sqrt_t_steps <- sqrt(t_steps)
+
+  # Initialize the starting positions for all (N-1) segments at once
+  # curPos_mat is an (N-1) x 3 matrix
+  curPos_mat <- as.matrix(aug_data[1:(N-1), 1:3])
+
+  # Inner loop: Propagate all segments simultaneously
+  for(j in 1:N_prop_steps) {
+
+    # Evaluate drift for all (N-1) positions simultaneously
+    # Ensure this function is updated to return an (N-1) x 2 matrix
+    cur_drift_mat <- TrajWeightedBaseVectorFields_2D_Cosine(
+      pos_t_mat = curPos_mat,
+      beta_mat = post_beta_mat,
+      baseVectorFields_Vec = baseVectorFields_Vec,
+      border = border
+    )
+
+    # Extract diffusion for all N-1 segments for step j
+    cur_diffusion_vec_1 <- rand_vel_1[j,]
+    cur_diffusion_vec_2 <- rand_vel_2[j,]
+
+    # Update Time (Column 1)
+    curPos_mat[, 1] <- curPos_mat[, 1] + t_steps
+
+    # Update X and Y positions (Columns 2 and 3)
+    curPos_mat[, 2] <- curPos_mat[, 2] + cur_drift_mat[, 1] * t_steps + cur_diffusion_vec_1 * sqrt_t_steps
+    curPos_mat[, 3] <- curPos_mat[, 3] + cur_drift_mat[, 2] * t_steps + cur_diffusion_vec_2 * sqrt_t_steps
+  }
+
+  # Fast Likelihood calculation using sum of squares instead of matrix multiplication
+  diff_1 <- curPos_mat[, 2] - aug_data$X1[-1]
+  diff_2 <- curPos_mat[, 3] - aug_data$X2[-1]
+
+  post_likelihood_loss_pos <- sum(diff_1^2 + diff_2^2) / (2 * (N - 1) * pos_sd^2)
+
+  # Fast Prior calculation using crossprod
+  d_beta1 <- post_beta_1 - start_beta_1
+  d_beta2 <- post_beta_2 - start_beta_2
+
+  post_prior_loss <- crossprod(d_beta1, prior_beta_sigma %*% d_beta1) +
+    crossprod(d_beta2, prior_beta_sigma %*% d_beta2)
+
+  list(post_beta_mat, post_likelihood_loss_pos, post_prior_loss, post_traj_grid)
+
+}
+
+
+post_traj_grid_plot = cbind(traj_eval_grid, post_traj_grid)
+
+ggplot(post_traj_grid_plot, aes(x=  Var1, y = Var2, color = log(post_beta_1))) + geom_point(size = 5)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
