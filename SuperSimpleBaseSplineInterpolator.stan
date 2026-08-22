@@ -15,8 +15,8 @@ parameters {
   matrix[K, D] z_y;
 
   // NEW: Changed to row_vector to enable matrix broadcasting
-  row_vector<lower=-10, upper=10>[D] start_pos_x;
-  row_vector<lower=-10, upper=10>[D] start_pos_y;
+  row_vector[D] start_pos_x;
+  row_vector[D] start_pos_y;
 
   real<lower=0> sigma_pos;
   real<lower=0> sigma_vel;

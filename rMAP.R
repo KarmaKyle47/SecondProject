@@ -916,8 +916,272 @@ ggplot() + geom_path(data = test_particle, aes(x = X1, y = X2), color = 'red') +
 
 
 
+######### Simple VFs
+
+evaluate2DCosine = function(beta_mat, pos_mat, border){
+
+  Lx = border[3] - border[1]
+  Ly = border[4] - border[2]
+
+  M = sqrt(nrow(beta_mat))-1
+  N_points = nrow(pos_mat)
+
+  omega = (0:M)*pi
+
+  Phi = matrix(nrow = N_points, ncol = (M+1)^2)
+
+  for(i in 0:M){
+    for(j in 0:M){
+
+      Phi[,i*(M+1) + j + 1] = sqrt(2)^(i==0) * sqrt(2)^(j==0) * cos(omega[1:M+1]*(pos_mat[,1] - border[1])/Lx) * cos(omega[1:M+1]*(pos_mat[,2] - border[2])/Ly)
+
+    }
+  }
 
 
+  Phi %*% beta_mat
+
+}
+
+pos_mat = expand.grid(seq(0.01,1, length.out = 10), seq(0.01,1, length.out = 10))
+pos_t_mat = cbind(rep(0,100), pos_mat)
+evaluate2DCosine(beta_mat = matrix(c(1,0.3,0.6,-2,
+                          2,0.8,-3,4), nrow = 4, byrow = F), pos_mat, border = c(0,0,1,1))
+
+
+TrajWeightedBaseVectorFields_2D_Cosine = function(pos_t_mat, beta_mat, baseVectorFields_Vec, border){
+
+
+  log_Traj = evaluate2DCosine(beta_mat, pos_t_mat, border)
+  log_Traj_mat = cbind(log_Traj, log_Traj)
+
+  baseVF = baseVectorFields_Vec(pos_t_mat)
+
+  Weighted_Vel = exp(log_Traj_mat) * baseVF
+
+  cbind(Weighted_Vel[,1] + Weighted_Vel[,2], Weighted_Vel[,3] + Weighted_Vel[,4])
+
+
+}
+
+
+
+baseVectorFields_Vec = function(pos_t_mat){
+
+  c = sqrt(rowSums(pos_t_mat[,c(2,3)]^2))
+
+  f1x = pos_t_mat[,3] / c
+  f1y = -1*pos_t_mat[,2] / c
+
+  f2x = pos_mat[,2] / c
+  f2y = pos_t_mat[,3] / c
+
+  cbind(f1x,f2x, f1y, f2y)
+
+}
+
+
+sample_rMAP_bspline = function(sim_data, pos_sd = 0.1, K_base = 10, K_full = 20, N_quad = 1000, vel_sd = 0.1, pos_selection_sd = 0.1, baseVectorFields_Vec, beta_mat, border){
+
+  N = nrow(sim_data)
+
+  # Add positional error
+
+  x_pos_err = rnorm(N, 0, pos_sd)
+  y_pos_err = rnorm(N, 0, pos_sd)
+
+  aug_data = sim_data + matrix(c(rep(0, N), x_pos_err, y_pos_err), byrow = F, ncol = 3)
+
+  # Get optimal base path
+
+  drifter_boundary = c(min(aug_data$t), max(aug_data$t))
+  Lt = diff(drifter_boundary)
+  t_quad = seq(drifter_boundary[1], drifter_boundary[2], length.out = N_quad)
+
+  # Propagate the basis matrices
+
+  Phi_data_base = bSpline(aug_data$t, df = K_base, intercept = T)
+  Phi_base = bSpline(t_quad, df = K_base, intercept = T)
+  Phi_d_base = bSpline(t_quad, df = K_base, intercept = T, derivs = 1)
+
+  Phi_data = bSpline(aug_data$t, df = K_full, intercept = T)
+  Phi = bSpline(t_quad, df = K_full, intercept = T)
+  Phi_d = bSpline(t_quad, df = K_full, intercept = T, derivs = 1)
+
+  # Get least-squares estimate from first K_base parameters
+
+  c_base_x = c(ginv(t(Phi_data_base) %*% Phi_data_base) %*% t(Phi_data_base) %*% aug_data$X1)
+  c_base_y = c(ginv(t(Phi_data_base) %*% Phi_data_base) %*% t(Phi_data_base) %*% aug_data$X2)
+
+  ggplot() + geom_point(data = aug_data, aes(x = t, y = X1)) + geom_path(aes(x = t_quad, y = Phi_base %*% c_base_x))
+
+
+  # Sample random w as a particular starting point from the prior
+  # Sigma comes from the added acceleration being distribution Chi-Squared
+
+  helper_M = t(Phi) %*% Phi
+  helper_M_inv = ginv(helper_M)
+
+  c_prior_sigma = (N_quad * pos_selection_sd^2 / Lt) * helper_M_inv
+  inv_c_prior_sigma = (Lt / (N_quad * pos_selection_sd^2)) * helper_M
+
+  rand_c_x = mvrnorm(mu = rep(0, K_full), Sigma = c_prior_sigma)
+  rand_c_y = mvrnorm(mu = rep(0, K_full), Sigma = c_prior_sigma)
+
+  rand_vel = rnorm(2*N_quad, 0, sd = vel_sd)
+
+  # Optimize for the best w that matched the mixing fields
+  rMAP_loss = function(c){
+
+    c_x = c[1:K_full]
+    c_y = c[1:K_full + K_full]
+
+    path_pos_data_x = Phi_data_base %*% c_base_x + Phi_data %*% c_x
+    path_pos_data_y = Phi_data_base %*% c_base_y + Phi_data %*% c_y
+
+    path_vel = rbind(Phi_d_base %*% c_base_x + Phi_d %*% c_x, Phi_d_base %*% c_base_y + Phi_d %*% c_y)
+
+    traj_vel = c(TrajWeightedBaseVectorFields_2D_Cosine(pos_t_mat = cbind(t_quad, Phi_base %*% c_base_x + Phi %*% c_x, Phi_base %*% c_base_y + Phi %*% c_y),
+                                                      baseVectorFields_Vec = baseVectorFields_Vec, beta_mat = beta_mat, border = border))
+
+    likelihood_loss_pos = (1 / pos_sd^2) * (t(path_pos_data_x - aug_data$X1) %*% (path_pos_data_x - aug_data$X1) + t(path_pos_data_y - aug_data$X2) %*% (path_pos_data_y - aug_data$X2)) / (2*N)
+    likelihood_loss_vel = (1 / vel_sd^2) * (t(path_vel - traj_vel - rand_vel) %*% (path_vel - traj_vel - rand_vel)) / (2*N_quad)
+    prior_loss = t(c_x - rand_c_x) %*% inv_c_prior_sigma %*% (c_x - rand_c_x) + t(c_y - rand_c_y) %*% inv_c_prior_sigma %*% (c_y - rand_c_y)
+
+    as.numeric(likelihood_loss_pos + likelihood_loss_vel + prior_loss)
+
+  }
+
+  w_init <- c(rand_c_x, rand_c_y)
+
+  # Run the optimizer
+  opt_result <- optim(
+    par = w_init,             # Starting values
+    fn = rMAP_loss,           # Your loss function
+    method = "BFGS",          # Unconstrained quasi-Newton
+    control = list(
+      maxit = 1000,           # Increase max iterations (default is 100)
+      trace = 1,              # Prints progress to the console
+      REPORT = 10             # How often to print progress
+    )
+  )
+
+  post_c_x = opt_result$par[1:K_full]
+  post_c_y = opt_result$par[1:K_full + K_full]
+
+  post_path_vel = rbind(Phi_d_base %*% c_base_x + Phi_d %*% post_c_x, Phi_d_base %*% c_base_y + Phi_d %*% post_c_y)
+  post_traj_vel = c(TrajWeightedBaseVectorFields_2D_Cosine(pos_t_mat = cbind(t_quad, Phi_base %*% c_base_x + Phi %*% post_c_x, Phi_base %*% c_base_y + Phi %*% post_c_y),
+                                                           baseVectorFields_Vec = baseVectorFields_Vec, beta_mat = beta_mat, border = border))
+
+  post_path_pos_data_x = Phi_data_base %*% c_base_x + Phi_data %*% post_c_x
+  post_path_pos_data_y = Phi_data_base %*% c_base_y + Phi_data %*% post_c_y
+
+
+  post_likelihood_loss_pos = (1 / pos_sd^2) * (t(post_path_pos_data_x - aug_data$X1) %*% (post_path_pos_data_x - aug_data$X1) + t(post_path_pos_data_y - aug_data$X2) %*% (post_path_pos_data_y - aug_data$X2)) / (2*N)
+  post_likelihood_loss_vel = (1 / vel_sd^2) * (t(post_path_vel - post_traj_vel - rand_vel) %*% (post_path_vel - post_traj_vel - rand_vel)) / (2*N_quad)
+  post_prior_loss = t(post_c_x - rand_c_x) %*% inv_c_prior_sigma %*% (post_c_x - rand_c_x) + t(post_c_y - rand_c_y) %*% inv_c_prior_sigma %*% (post_c_y - rand_c_y)
+
+  pos_x_post = Phi_base %*% c_base_x + Phi %*% post_c_x
+  pos_y_post = Phi_base %*% c_base_y + Phi %*% post_c_y
+
+  plot(pos_x_post, pos_y_post)
+
+  list(pos_x_post, pos_y_post, post_likelihood_loss_pos, post_likelihood_loss_vel, post_prior_loss)
+
+}
+
+
+
+
+
+baseVectorFields = function(t, curPos){
+
+  c = sqrt(sum(curPos^2))
+
+  f1 = c(curPos[2],-1*curPos[1]) / c
+  f2 = c(curPos[1],curPos[2]) / c
+
+  matrix(c(f1,f2), nrow = 2, byrow = F)
+
+}
+
+rand_res = 100
+
+
+sampledParticles = samplePhySpaceParticles(n_particles = 1, startTime = 0, n_obs = 100, border = c(-5,-5,5,5), borderBuffer = 0.4, baseVectorFields, OneTraj,
+                                           M = 2, t_step_mean = 0.01, vel_sigma = 0.1, pos_sigma = 0)
+
+ggplot(sampledParticles, aes(x = X1, y = X2, color = Particle)) + geom_point()
+
+sampledParticles_Sub = sampledParticles
+
+ggplot(sampledParticles_Sub, aes(x = X1, y = X2)) + geom_point()
+
+
+N_quad = 1000
+
+pos_x_post = matrix(nrow = N_quad, ncol = 100)
+pos_y_post = matrix(nrow = N_quad, ncol = 100)
+post_like_pos = rep(0,100)
+post_like_vel = rep(0,100)
+post_like_prior = rep(0,100)
+
+svMisc::progress(0,100)
+
+beta_list = OneTraj$log_z
+
+for(i in 1:100){
+
+  cur_draw = sample_rMAP_bspline(sim_data = sampledParticles_Sub[,1:3], pos_sd = 0.01, K_base = 10, K_full = 10, N_quad = N_quad, vel_sd = 0.1, pos_selection_sd = 0.1, beta_mat = matrix(rep(0,8), nrow = 4), baseVectorFields_Vec = baseVectorFields_Vec, border = c(-5,-5,5,5))
+
+  #Metropolis
+
+  pos_x_post[,i] = cur_draw[[1]]
+  pos_y_post[,i] = cur_draw[[2]]
+
+  post_like_pos[i] = cur_draw[[3]]
+  post_like_vel[i] = cur_draw[[4]]
+  post_like_prior[i] = cur_draw[[5]]
+
+
+  svMisc::progress(i,100)
+
+}
+
+
+plot(post_like_pos+post_like_vel+post_like_prior)
+
+median(post_like_vel)
+
+t_quad = seq(min(sampledParticles_Sub$t),max(sampledParticles_Sub$t), length.out = N_quad)
+
+
+plotting_Post_df = data.frame(t = rep(t_quad, 100), X1 = c(pos_x_post), X2 = c(pos_y_post), run = rep(1:100, each = N_quad))
+
+test_particle = sampledParticles
+sim_particle_sub = sampledParticles_Sub
+
+ggplot() + geom_path(data = test_particle, aes(x = X1, y = X2), color = 'red', size = 1) + geom_path(data = plotting_Post_df, aes(x = X1, y = X2, group = run), alpha = 0.2) + geom_point(data = sim_particle_sub, aes(x = X1, y = X2), color = 'red')
+ggplot() + geom_path(data = test_particle, aes(x = t, y = X1), color = 'red') + geom_path(data = plotting_Post_df, aes(x = t, y = X1, group = run), alpha = 0.2) + geom_point(data = sim_particle_sub, aes(x = t, y = X1), color = 'red')
+ggplot() + geom_path(data = test_particle, aes(x = t, y = X2), color = 'red') + geom_path(data = plotting_Post_df, aes(x = t, y = X2, group = run), alpha = 0.2) + geom_point(data = sim_particle_sub, aes(x = t, y = X2), color = 'red')
+
+
+
+ggplot() + geom_path(data = test_particle, aes(x = X1, y = X2), color = 'red') + geom_path(aes(x = rowMeans(pos_x_post), y = rowMeans(pos_y_post)))
+ggplot() + geom_path(data = test_particle, aes(x = t, y = X1), color = 'red') + geom_path(aes(x = t_quad, y = rowMeans(pos_x_post)))
+ggplot() + geom_path(data = test_particle, aes(x = t, y = X2), color = 'red') + geom_path(aes(x = t_quad, y = rowMeans(pos_y_post)))
+
+ggplot() + geom_line(data = test_particle, aes(x = t, y = X1), color = 'red') + #geom_line(aes(x = t_quad, y = rowMeans(pos_x_post)), color = 'black') +
+  geom_line(aes(x = t_quad, y = apply(pos_x_post, 1, quantile, p = 0.025)), color = 'blue') + geom_line(aes(x = t_quad, y = apply(pos_x_post, 1, quantile, p = 0.975)), color = 'blue')
+
+ggplot() + geom_line(data = test_particle, aes(x = t, y = X2), color = 'red') + #geom_line(aes(x = t_quad, y = rowMeans(pos_y_post)), color = 'black') +
+  geom_line(aes(x = t_quad, y = apply(pos_y_post, 1, quantile, p = 0.025)), color = 'blue') + geom_line(aes(x = t_quad, y = apply(pos_y_post, 1, quantile, p = 0.975)), color = 'blue')
+
+
+
+ggplot() + geom_path(data = test_particle, aes(x = X1, y = X2), color = 'red') + #geom_line(aes(x = t_quad, y = rowMeans(pos_x_post)), color = 'black') +
+  geom_path(aes(x = apply(pos_x_post, 1, quantile, p = 0.025), y = apply(pos_y_post, 1, quantile, p = 0.025)), color = 'blue') +
+  geom_path(aes(x = apply(pos_x_post, 1, quantile, p = 0.975), y = apply(pos_y_post, 1, quantile, p = 0.975)), color = 'blue')
 
 
 
