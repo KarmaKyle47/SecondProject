@@ -1419,40 +1419,80 @@ beta_2_post_mat = matrix(nrow = 100, ncol = M^2)
 post_traj_eval_1_list = list()
 post_traj_eval_2_list = list()
 
-post_like_pos = rep(0,100)
-post_like_prior = rep(0,100)
+post_like_pos_MH = rep(0,100)
+post_like_prior_MH = rep(0,100)
+
+accept_MH = rep(0,100)
 
 svMisc::progress(0,100)
 
 for(i in 1:100){
 
-  cur_draw = sample_rMAP_trajectories(sim_data = sim_data_list, pos_sd = sqrt(sqrt(var(post_like_full)/2.83))*0.001, vel_sd = 0.1, M = 2, prior_k = 0.35, prior_l = 1, baseVectorFields_Vec = baseVectorFields_Vec, border = c(-2,-2,2,2), N_prop_steps = 5, traj_eval_grid = traj_eval_grid)
+  cur_draw = sample_rMAP_trajectories(sim_data = sim_data_list, pos_sd = 0.0019, vel_sd = 0.1, M = 2, prior_k = 0.35, prior_l = 1, baseVectorFields_Vec = baseVectorFields_Vec, border = c(-2,-2,2,2), N_prop_steps = 5, traj_eval_grid = traj_eval_grid)
 
   #Metropolis
 
   if(i > 1){
 
-    prev_LL =
+    prev_NLL = post_like_pos_MH[i-1] + post_like_prior_MH[i-1]
+    cur_NLL = cur_draw[[2]] + cur_draw[[3]]
+
+    log_acc_prob = -1* (cur_NLL - prev_NLL)
+
+    u = runif(1)
+
+    if(log(u) < log_acc_prob){
+
+      beta_1_post_mat_MH[i,] = cur_draw[[1]][,1]
+      beta_2_post_mat_MH[i,] = cur_draw[[1]][,2]
+
+      post_like_pos_MH[i] = cur_draw[[2]]
+      post_like_prior_MH[i] = cur_draw[[3]]
+
+      post_traj_eval_1_list_MH[[i]] = cur_draw[[4]][,1]
+      post_traj_eval_2_list_MH[[i]] = cur_draw[[4]][,2]
+
+      accept_MH[i] = 1
+
+    } else{
+
+      beta_1_post_mat_MH[i,] = beta_1_post_mat_MH[i-1,]
+      beta_2_post_mat_MH[i,] = beta_2_post_mat_MH[i-1,]
+
+      post_like_pos_MH[i] = post_like_pos_MH[i-1]
+      post_like_prior_MH[i] = post_like_prior_MH[i-1]
+
+      post_traj_eval_1_list_MH[[i]] = post_traj_eval_1_list_MH[[i-1]]
+      post_traj_eval_2_list_MH[[i]] = post_traj_eval_2_list_MH[[i-1]]
+
+      print('Rejected')
+
+    }
+
+  } else{
+
+    beta_1_post_mat_MH[i,] = cur_draw[[1]][,1]
+    beta_2_post_mat_MH[i,] = cur_draw[[1]][,2]
+
+    post_like_pos_MH[i] = cur_draw[[2]]
+    post_like_prior_MH[i] = cur_draw[[3]]
+
+    post_traj_eval_1_list_MH[[i]] = cur_draw[[4]][,1]
+    post_traj_eval_2_list_MH[[i]] = cur_draw[[4]][,2]
+
+    accept_MH[i] = 1
 
   }
-
-  beta_1_post_mat_V2[i,] = cur_draw[[1]][,1]
-  beta_2_post_mat_V2[i,] = cur_draw[[1]][,2]
-
-  post_like_pos_V2[i] = cur_draw[[2]]
-  post_like_prior_V2[i] = cur_draw[[3]]
-
-  post_traj_eval_1_list_V2[[i]] = cur_draw[[4]][,1]
-  post_traj_eval_2_list_V2[[i]] = cur_draw[[4]][,2]
-
 
   svMisc::progress(i,100)
 
 }
 
-plot(post_like_pos_V2 + post_like_prior_V2)
+plot(post_like_pos_MH + post_like_prior_MH)
 
-post_like_full = post_like_pos_V2 + post_like_prior_V2
+mean(accept_MH)
+
+post_like_full = post_like_pos_MH + post_like_prior_MH
 
 acc_prob = rep(1,100)
 
@@ -1469,8 +1509,8 @@ var(post_like_full)
 
 mean(acc_prob)
 
-hist(beta_1_post_mat_V2[,4])
-quantile(beta_1_post_mat_V2[,4], probs = c(0.025, 0.975))
+hist(beta_2_post_mat_MH[,4])
+quantile(beta_2_post_mat_MH[,4], probs = c(0.025, 0.975))
 
 
 test_sample
@@ -1486,15 +1526,202 @@ sqrt(sqrt(var(post_like_full)/2.83))
 
 
 
-post_draws_traj_eval_1_V2 = do.call(cbind, post_traj_eval_1_list_V2)
-post_draws_traj_eval_2_V2 = do.call(cbind, post_traj_eval_2_list_V2)
+post_draws_traj_eval_1_MH = do.call(cbind, post_traj_eval_1_list_MH)
+post_draws_traj_eval_2_MH = do.call(cbind, post_traj_eval_2_list_MH)
 
-CI_traj_1_V2 = t(apply(post_draws_traj_eval_1_V2, MARGIN = 1, FUN = quantile, probs = c(0.025, 0.975)))
-CI_traj_2_V2 = t(apply(post_draws_traj_eval_2_V2, MARGIN = 1, FUN = quantile, probs = c(0.025, 0.975)))
+mean_traj_1_MH = rowMeans(post_draws_traj_eval_1_MH)
+mean_traj_2_MH = rowMeans(post_draws_traj_eval_2_MH)
 
-mean(CI_traj_1_V2[,1] <= 1 & CI_traj_1_V2[,2] >= 1)
+hist(mean_traj_1_MH)
+hist(mean_traj_2_MH)
 
-mean(CI_traj_2_V2[,1] <= 1 & CI_traj_2_V2[,2] >= 1)
+
+
+CI_traj_1_MH = t(apply(post_draws_traj_eval_1_MH, MARGIN = 1, FUN = quantile, probs = c(0.025, 0.975)))
+CI_traj_2_MH = t(apply(post_draws_traj_eval_2_MH, MARGIN = 1, FUN = quantile, probs = c(0.025, 0.975)))
+
+mean(CI_traj_1_MH[,1] <= 1 & CI_traj_1_MH[,2] >= 1)
+
+mean(CI_traj_2_MH[,1] <= 1 & CI_traj_2_MH[,2] >= 1)
+
+
+
+### Trajectory other than flat
+
+baseVectorFields = function(t, curPos){
+
+  c = sqrt(sum(curPos^2))
+
+  f1 = c(curPos[2],-1*curPos[1]) / c
+  f2 = c(curPos[1],curPos[2]) / c
+
+  matrix(c(f2,f1), nrow = 2, byrow = F)
+
+
+}
+
+baseVectorFields_Vec = function(pos_t_mat){
+
+  c = sqrt(rowSums(pos_t_mat[,c(2,3)]^2))
+
+  f1x = pos_t_mat[,3] / c
+  f1y = -1*pos_t_mat[,2] / c
+
+  f2x = pos_t_mat[,2] / c
+  f2y = pos_t_mat[,3] / c
+
+  cbind(f2x,f1x, f2y, f1y)
+
+}
+
+
+M=2
+true_l = 1
+true_k = 0.35
+
+trueHSGP = sampleFullTrajectoriesHSGP(2, M = M-1, log_k = true_k, log_l = true_l)
+
+omega = (1:M-1)*pi
+spec_den = sqrt(2*pi)*true_l*exp(-0.5*true_l^2*omega^2)
+
+prior_beta_sigma = diag(c(true_k^2 * diag(spec_den) %*% matrix(rep(1,M^2), nrow = M) %*% diag(spec_den)))
+
+true_beta_1 = c(true_k*diag(sqrt(spec_den)) %*% trueHSGP$log_z[[1]] %*% diag(sqrt(spec_den)))
+true_beta_2 = c(true_k*diag(sqrt(spec_den)) %*% trueHSGP$log_z[[2]] %*% diag(sqrt(spec_den)))
+
+true_beta_mat = cbind(true_beta_1, true_beta_2)
+
+
+sampledParticles = samplePhySpaceParticles(n_particles = 100, startTime = 0, n_obs = 20*10, border = c(-2,-2,2,2), borderBuffer = 0.2, baseVectorFields, trueHSGP,
+                                           M = 2, t_step_mean = 0.001, vel_sigma = 0, pos_sigma = 0)
+
+sampledParticles_Sub = sampledParticles[1:(100*20) * 10 - (10-1),]
+ggplot(sampledParticles_Sub, aes(x = X1, y = X2, color = Particle)) + geom_point()
+
+sim_data_list = list()
+
+for(d in 1:100){
+
+  curDrifter = sampledParticles_Sub[sampledParticles_Sub$Particle == str_c('Particle',d),]
+
+  sim_data_list[[d]] = curDrifter[,c(1,2,3)]
+
+
+}
+
+
+traj_eval_grid = expand.grid(seq(-2,2, length.out = 100), seq(-2,2, length.out = 100))
+
+TrueTrajVals = exp(evaluate2DCosine(true_beta_mat, pos_mat = traj_eval_grid, border = c(-2,-2,2,2)))
+
+
+run_rMAP_Trajectory = function(N_samples, sim_data_list, pos_sd, vel_sd, M, prior_k, prior_l, baseVectorFields_Vec, border, N_prop_steps, traj_eval_grid){
+
+  beta_1_post_mat = matrix(nrow = N_samples, ncol = M^2)
+  beta_2_post_mat = matrix(nrow = N_samples, ncol = M^2)
+
+  post_traj_eval_1_list = list()
+  post_traj_eval_2_list = list()
+
+  post_like_pos = rep(0,100)
+  post_like_prior = rep(0,100)
+
+  accept = rep(0,100)
+
+  svMisc::progress(0,100)
+
+  for(i in 1:100){
+
+    cur_draw = sample_rMAP_trajectories(sim_data = sim_data_list, pos_sd = pos_sd, vel_sd = vel_sd, M = M, prior_k = prior_k, prior_l = prior_l, baseVectorFields_Vec = baseVectorFields_Vec, border = border, N_prop_steps = N_prop_steps, traj_eval_grid = traj_eval_grid)
+
+    #Metropolis
+
+    if(i > 1){
+
+      prev_NLL = post_like_pos[i-1] + post_like_prior[i-1]
+      cur_NLL = cur_draw[[2]] + cur_draw[[3]]
+
+      log_acc_prob = -1* (cur_NLL - prev_NLL)
+
+      u = runif(1)
+
+      if(log(u) < log_acc_prob){
+
+        beta_1_post_mat[i,] = cur_draw[[1]][,1]
+        beta_2_post_mat[i,] = cur_draw[[1]][,2]
+
+        post_like_pos[i] = cur_draw[[2]]
+        post_like_prior[i] = cur_draw[[3]]
+
+        post_traj_eval_1_list[[i]] = cur_draw[[4]][,1]
+        post_traj_eval_2_list[[i]] = cur_draw[[4]][,2]
+
+        accept[i] = 1
+
+      } else{
+
+        beta_1_post_mat[i,] = beta_1_post_mat[i-1,]
+        beta_2_post_mat[i,] = beta_2_post_mat[i-1,]
+
+        post_like_pos[i] = post_like_pos[i-1]
+        post_like_prior[i] = post_like_prior[i-1]
+
+        post_traj_eval_1_list[[i]] = post_traj_eval_1_list[[i-1]]
+        post_traj_eval_2_list[[i]] = post_traj_eval_2_list[[i-1]]
+
+        print('Rejected')
+
+      }
+
+    } else{
+
+      beta_1_post_mat[i,] = cur_draw[[1]][,1]
+      beta_2_post_mat[i,] = cur_draw[[1]][,2]
+
+      post_like_pos[i] = cur_draw[[2]]
+      post_like_prior[i] = cur_draw[[3]]
+
+      post_traj_eval_1_list[[i]] = cur_draw[[4]][,1]
+      post_traj_eval_2_list[[i]] = cur_draw[[4]][,2]
+
+      accept[i] = 1
+
+    }
+
+    svMisc::progress(i,100)
+
+  }
+
+  post_draws_traj_eval_1 = do.call(cbind, post_traj_eval_1_list)
+  post_draws_traj_eval_2 = do.call(cbind, post_traj_eval_2_list)
+
+  list(Beta1Posterior = beta_1_post_mat, Beta2Posterior = beta_2_post_mat,
+       Traj1Posterior = post_draws_traj_eval_1, Traj2Posterior = post_draws_traj_eval_2,
+       PosPosteriorNLL = post_like_pos, PriorPosteriorNLL = post_like_prior, MH_Acceptance = accept)
+
+
+}
+
+
+real_traj_test_1 = run_rMAP_Trajectory(N_samples = 100, sim_data_list = sim_data_list,
+                                       pos_sd = 0.001, vel_sd = 0.01, M = 2, prior_k = 0.35,
+                                       prior_l = 1, baseVectorFields_Vec = baseVectorFields_Vec,
+                                       border = c(-2,-2,2,2), N_prop_steps = 5, traj_eval_grid = traj_eval_grid)
+mean(real_traj_test_1$MH_Acceptance)
+
+PostTraj1_Mean = rowMeans(real_traj_test_1$Traj1Posterior)
+PostTraj2_Mean = rowMeans(real_traj_test_1$Traj2Posterior)
+
+hist((PostTraj1_Mean - TrueTrajVals[,1])^2)
+hist((PostTraj2_Mean - TrueTrajVals[,2])^2)
+
+CI_traj_1 = t(apply(real_traj_test_1$Traj1Posterior, MARGIN = 1, FUN = quantile, probs = c(0.025, 0.975)))
+CI_traj_2 = t(apply(real_traj_test_1$Traj2Posterior, MARGIN = 1, FUN = quantile, probs = c(0.025, 0.975)))
+
+mean(CI_traj_1[,1] <= TrueTrajVals[,1] & CI_traj_1[,2] >= TrueTrajVals[,1])
+mean(CI_traj_2[,1] <= TrueTrajVals[,2] & CI_traj_2[,2] >= TrueTrajVals[,2])
+
+
 
 
 
