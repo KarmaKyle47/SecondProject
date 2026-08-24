@@ -27,7 +27,7 @@ arma::mat calc_drift(const arma::mat& pos_t, const arma::mat& beta_mat, const ar
             if(i != 0) scale *= std::sqrt(2.0);
             if(j != 0) scale *= std::sqrt(2.0);
 
-            int col_idx = i * (M + 1) + j;
+            int col_idx = j * (M + 1) + i;
             for(int r = 0; r < N; ++r) {
                 double cx = std::cos(omega[i] * (pos_t(r, 1) - border[0]) / Lx);
                 double cy = std::cos(omega[j] * (pos_t(r, 2) - border[1]) / Ly);

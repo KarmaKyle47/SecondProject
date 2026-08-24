@@ -3,6 +3,7 @@ library(stringr)
 library(MASS)
 library(ggplot2)
 library(minqa)
+library(nloptr)
 
 
 evaluateHSGP = function(z, k, l, M, border, curPos){
@@ -185,8 +186,8 @@ evaluate2DCosine_fast = function(beta_mat, pos_mat, border){
   cos_Y = sweep(cos_Y, 2, scale_vec, `*`)
 
   # 3. Create the Phi combinations instantly using R's fast vector recycling
-  idx_i = rep(1:(M+1), each = M+1)
-  idx_j = rep(1:(M+1), times = M+1)
+  idx_i = rep(1:(M+1), times = M+1)
+  idx_j = rep(1:(M+1), each = M+1)
 
   Phi = cos_X[, idx_i] * cos_Y[, idx_j]
 
@@ -234,7 +235,7 @@ baseVectorFields_Vec = function(pos_t_mat){
 
 }
 
-sample_rMAP_trajectories = function(sim_data_list, pos_sd = 0.001, vel_sd = 0.1, M = 2, prior_k = 0.35, prior_l = 1, baseVectorFields_Vec, border, N_prop_steps = 10, traj_eval_grid){
+sample_rMAP_trajectories = function(sim_data_list, pos_sd = 0.001, vel_sd = 0.1, M = 2, prior_k = 0.35, prior_l = 1, baseVectorFields_Vec, border, N_prop_steps = 10, traj_eval_grid, print_every = 50){
 
   N_v = as.numeric(lapply(sim_data_list, nrow))
   N = sum(N_v)
@@ -262,6 +263,9 @@ sample_rMAP_trajectories = function(sim_data_list, pos_sd = 0.001, vel_sd = 0.1,
 
   prior_beta_sigma = diag(c(prior_k^2 * diag(spec_den) %*% matrix(rep(1,4), nrow = 2) %*% diag(spec_den)))
 
+  upper_beta = rep(sqrt(diag(prior_beta_sigma))*3,2)
+  lower_beta = -1*upper_beta
+
   start_beta_1 = mvrnorm(1, rep(0, M^2), Sigma = prior_beta_sigma)
   start_beta_2 = mvrnorm(1, rep(0, M^2), Sigma = prior_beta_sigma)
 
@@ -279,11 +283,17 @@ sample_rMAP_trajectories = function(sim_data_list, pos_sd = 0.001, vel_sd = 0.1,
   # Good catch on the prior! Pre-calculate the precision matrix (inverse of covariance) here
   prior_precision_mat <- ginv(as.matrix(prior_beta_sigma))
 
+  eval_counter <- 0
+
+  cat(sprintf("\n\n--- Starting Optimization for New Sample ---\n"))
+
   # Optimize for the best w that matched the mixing fields
   rMAP_loss <- function(beta) {
 
+    eval_counter <<- eval_counter + 1
+
     # The only thing happening here is the jump to C++
-    rMAP_loss_cpp(
+    current_loss <- rMAP_loss_cpp(
       beta = beta,
       M_sq = M^2,
       aug_data_starts = aug_starts_mat,
@@ -297,21 +307,38 @@ sample_rMAP_trajectories = function(sim_data_list, pos_sd = 0.001, vel_sd = 0.1,
       start_beta = start_beta_vec
     )
 
+    if (eval_counter %% print_every == 0) {
+      beta_str <- paste(sprintf("%.3f", beta), collapse = ", ")
+
+      # Notice the \n at the VERY BEGINNING here too, to clear the progress bar
+      cat(sprintf("\nIter: %4d | Loss: %10.4f | Beta: [%s]",
+                  eval_counter, current_loss, beta_str))
+    }
+
+    return(current_loss)
+
   }
 
-  # Run the optimizer
-  opt_result <- nlminb(
-    start = start_beta,
-    objective = rMAP_loss,
-    control = list(
-      eval.max = 2000,
-      iter.max = 1500,
-      trace = 1       # Prints progress
+    # Run the optimizer
+  opt_result <- nloptr(
+    x0 = start_beta,               # Starting values
+    eval_f = rMAP_loss,            # Your C++ wrapper function
+    opts = list(
+      "algorithm" = "NLOPT_LN_NEWUOA",  # LN = Local, No-derivative
+      "ftol_rel" = 1e-6,                # Stop when parameters stop changing by this fraction
+      "maxeval" = 2000,                 # Maximum number of evaluations
+      "print_level" = 0                 # 0 = silent, 1 = show progress, 2 = verbose
     )
   )
 
-  post_beta_1 = opt_result$par[1:(M^2)]
-  post_beta_2 = opt_result$par[1:(M^2)+(M^2)]
+  final_beta_str <- paste(sprintf("%.3f", opt_result$solution), collapse = ", ")
+
+  # Using "FINAL" so it stands out from the regular 100-step updates
+  cat(sprintf("\nFINAL: Iter: %4d | Loss: %10.4f | Beta: [%s]\n",
+              opt_result$iterations, opt_result$objective, final_beta_str))
+
+  post_beta_1 = opt_result$solution[1:(M^2)]
+  post_beta_2 = opt_result$solution[1:(M^2)+(M^2)]
   post_beta_mat = cbind(post_beta_1, post_beta_2)
 
   post_traj_grid = exp(evaluate2DCosine_fast(beta_mat = post_beta_mat, pos_mat = traj_eval_grid, border = border))
@@ -378,11 +405,13 @@ sample_rMAP_trajectories = function(sim_data_list, pos_sd = 0.001, vel_sd = 0.1,
   post_prior_loss <- crossprod(d_beta1, prior_precision_mat %*% d_beta1) +
     crossprod(d_beta2, prior_precision_mat %*% d_beta2)
 
+  cat("\n")
+
   list(post_beta_mat, post_likelihood_loss_pos, post_prior_loss, post_traj_grid)
 
 }
 
-run_rMAP_Trajectory = function(N_samples, sim_data_list, pos_sd, vel_sd, M, prior_k, prior_l, baseVectorFields_Vec, border, N_prop_steps, traj_eval_grid){
+run_rMAP_Trajectory = function(N_samples, sim_data_list, pos_sd, vel_sd, M, prior_k, prior_l, baseVectorFields_Vec, border, N_prop_steps, traj_eval_grid, print_every = 50){
 
   beta_1_post_mat = matrix(nrow = N_samples, ncol = M^2)
   beta_2_post_mat = matrix(nrow = N_samples, ncol = M^2)
@@ -390,19 +419,18 @@ run_rMAP_Trajectory = function(N_samples, sim_data_list, pos_sd, vel_sd, M, prio
   post_traj_eval_1_list = list()
   post_traj_eval_2_list = list()
 
-  post_like_pos = rep(0,100)
-  post_like_prior = rep(0,100)
+  post_like_pos = rep(0, N_samples)
+  post_like_prior = rep(0, N_samples)
+  accept = rep(0, N_samples)
 
-  accept = rep(0,100)
+  for(i in 1:N_samples){
 
-  svMisc::progress(0,100)
+    cat(sprintf("=========== PROGRESS: Sample %d of %d ===========\n", i, N_samples))
+    flush.console()
 
-  for(i in 1:100){
+    cur_draw = sample_rMAP_trajectories(sim_data_list = sim_data_list, pos_sd = pos_sd, vel_sd = vel_sd, M = M, prior_k = prior_k, prior_l = prior_l, baseVectorFields_Vec = baseVectorFields_Vec, border = border, N_prop_steps = N_prop_steps, traj_eval_grid = traj_eval_grid, print_every = print_every)
 
-    cur_draw = sample_rMAP_trajectories(sim_data = sim_data_list, pos_sd = pos_sd, vel_sd = vel_sd, M = M, prior_k = prior_k, prior_l = prior_l, baseVectorFields_Vec = baseVectorFields_Vec, border = border, N_prop_steps = N_prop_steps, traj_eval_grid = traj_eval_grid)
-
-    #Metropolis
-
+    # Metropolis
     if(i > 1){
 
       prev_NLL = post_like_pos[i-1] + post_like_prior[i-1]
@@ -425,6 +453,8 @@ run_rMAP_Trajectory = function(N_samples, sim_data_list, pos_sd, vel_sd, M, prio
 
         accept[i] = 1
 
+        cat('\n*** Accepted ***\n\n')
+
       } else{
 
         beta_1_post_mat[i,] = beta_1_post_mat[i-1,]
@@ -436,7 +466,7 @@ run_rMAP_Trajectory = function(N_samples, sim_data_list, pos_sd, vel_sd, M, prio
         post_traj_eval_1_list[[i]] = post_traj_eval_1_list[[i-1]]
         post_traj_eval_2_list[[i]] = post_traj_eval_2_list[[i-1]]
 
-        print('Rejected')
+        cat('\n*** Rejected ***\n\n')
 
       }
 
@@ -453,9 +483,9 @@ run_rMAP_Trajectory = function(N_samples, sim_data_list, pos_sd, vel_sd, M, prio
 
       accept[i] = 1
 
-    }
+      cat('\n*** Initial Accepted ***\n\n')
 
-    svMisc::progress(i,100)
+    }
 
   }
 
@@ -465,7 +495,6 @@ run_rMAP_Trajectory = function(N_samples, sim_data_list, pos_sd, vel_sd, M, prio
   list(Beta1Posterior = beta_1_post_mat, Beta2Posterior = beta_2_post_mat,
        Traj1Posterior = post_draws_traj_eval_1, Traj2Posterior = post_draws_traj_eval_2,
        PosPosteriorNLL = post_like_pos, PriorPosteriorNLL = post_like_prior, MH_Acceptance = accept)
-
 
 }
 
@@ -492,7 +521,7 @@ sampledParticles = samplePhySpaceParticles(n_particles = 100, startTime = 0, n_o
                                            M = 2, t_step_mean = 0.001, vel_sigma = 0, pos_sigma = 0)
 
 sampledParticles_Sub = sampledParticles[1:(100*20) * 10 - (10-1),]
-ggplot(sampledParticles_Sub, aes(x = X1, y = X2, color = Particle)) + geom_point()
+ggplot(sampledParticles_Sub, aes(x = X1, y = X2, color = Particle)) + geom_point() + theme(legend.position = 'None')
 
 sim_data_list = list()
 
@@ -512,10 +541,10 @@ TrueTrajVals = exp(evaluate2DCosine_fast(true_beta_mat, pos_mat = traj_eval_grid
 
 
 real_traj_test_1 = run_rMAP_Trajectory(N_samples = 100, sim_data_list = sim_data_list,
-                                       pos_sd = 0.001, vel_sd = 0.01, M = 2, prior_k = 0.35,
+                                       pos_sd = 0.001, vel_sd = 0, M = 2, prior_k = 0.35,
                                        prior_l = 1, baseVectorFields_Vec = baseVectorFields_Vec,
-                                       border = c(-2,-2,2,2), N_prop_steps = 5, traj_eval_grid = traj_eval_grid)
-
+                                       border = c(-2,-2,2,2), N_prop_steps = 5, traj_eval_grid = traj_eval_grid, print_every = 50)
+??nloptr
 
 mean(real_traj_test_1$MH_Acceptance)
 
@@ -533,3 +562,9 @@ mean(CI_traj_2[,1] <= TrueTrajVals[,2] & CI_traj_2[,2] >= TrueTrajVals[,2])
 
 hist(CI_traj_1[,2] - CI_traj_1[,1])
 hist(CI_traj_2[,2] - CI_traj_2[,1])
+
+
+hist(real_traj_test_1$Beta1Posterior[,3])
+
+
+
