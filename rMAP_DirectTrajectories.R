@@ -564,7 +564,9 @@ hist(CI_traj_1[,2] - CI_traj_1[,1])
 hist(CI_traj_2[,2] - CI_traj_2[,1])
 
 
-hist(real_traj_test_1$Beta1Posterior[,3])
+hist(real_traj_test_1$Beta1Posterior[,1])
 
+colMeans(real_traj_test_1$Beta1Posterior)
+colMeans(real_traj_test_1$Beta2Posterior)
 
 
