@@ -397,7 +397,7 @@ sample_rMAP_trajectories = function(sim_data_list, pos_sd = 0.001, vel_sd = 0.1,
   diff_1 <- curPos_mat[, 2] - aug_data_ends$X1
   diff_2 <- curPos_mat[, 3] - aug_data_ends$X2
 
-  post_likelihood_loss_pos <- sum(diff_1^2 + diff_2^2) / (2 * (N_advects) * pos_sd^2)
+  post_likelihood_loss_pos <- sum(diff_1^2 + diff_2^2) / (2 * pos_sd^2)
 
   d_beta1 <- post_beta_1 - start_beta_1
   d_beta2 <- post_beta_2 - start_beta_2

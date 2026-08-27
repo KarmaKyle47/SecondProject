@@ -120,7 +120,7 @@ double rMAP_loss_cpp(arma::vec beta,
     // 4. Calculate Final Loss
     arma::vec diff_X = curPos.col(1) - aug_data_ends.col(1);
     arma::vec diff_Y = curPos.col(2) - aug_data_ends.col(2);
-    double likelihood_loss = (arma::dot(diff_X, diff_X) + arma::dot(diff_Y, diff_Y)) / (2.0 * N * pos_sd * pos_sd);
+    double likelihood_loss = (arma::dot(diff_X, diff_X) + arma::dot(diff_Y, diff_Y)) / (2.0 * pos_sd * pos_sd);
 
     arma::vec d_beta1 = beta_1 - start_beta.subvec(0, M_sq - 1);
     arma::vec d_beta2 = beta_2 - start_beta.subvec(M_sq, 2 * M_sq - 1);

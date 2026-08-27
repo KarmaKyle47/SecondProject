@@ -6,8 +6,6 @@ library(minqa)
 library(nloptr)
 library(splines2)
 
-??ginv
-
 
 evaluateHSGP = function(z, k, l, M, border, curPos){
 
@@ -241,20 +239,17 @@ baseVectorFields_Vec = function(pos_t_mat){
 
 ######## Start Building the Path Mode Finder Function #####################
 
-sample(matrix(1:10, nrow = 5), size = 1)
-
 trajectoryPost = cbind(real_traj_test_1$Beta1Posterior, real_traj_test_1$Beta2Posterior)
 data = sim_data_list[[18]]
 pos_sd = 0.001
 pos_selection_sd = 0.001
 vel_sd = 0.001
 
-aug_data$t
-
-prior_nodes = seq(0, max(data$t), length.out = 12)[-c(1,12)]
-full_nodes = seq(0, max(data$t), length.out = 52)[-c(1,52)]
+prior_nodes = seq(0, max(data$t), length.out = 6)[-c(1,12)]
+full_nodes = seq(0, max(data$t), length.out = 22)[-c(1,52)]
 N_quad = 1000
-find_rMAP_Path_Modes = function(data, pos_sd, vel_sd, trajectoryPost, border, N_quad, baseVectorFields_Vec, prior_nodes, full_nodes, pos_selection_sd){
+
+find_rMAP_Path_Modes = function(data, pos_sd, vel_sd, pos_selection_sd, trajectoryPost, border, N_quad, baseVectorFields_Vec, prior_nodes, full_nodes, print_every, plot){
 
   # Step 1: Sample Trajectory - trajectory Post is a data.frame or matrix with each posterior draw as a row
 
@@ -304,18 +299,26 @@ find_rMAP_Path_Modes = function(data, pos_sd, vel_sd, trajectoryPost, border, N_
   start_c_x = prior_full_c_x + mvrnorm(mu = rep(0, N_param), Sigma = c_prior_sigma)
   start_c_y = prior_full_c_y + mvrnorm(mu = rep(0, N_param), Sigma = c_prior_sigma)
 
-  plot(Phi_full %*% start_c_x, Phi_full %*% start_c_y)
-
   start_c = c(start_c_x, start_c_y)
 
   rand_vel_x = rnorm(N_quad, 0, sd = vel_sd)
   rand_vel_y = rnorm(N_quad, 0, sd = vel_sd)
 
+  # =================================================================
   # Step 6: Define loss function
+  # =================================================================
 
   aug_X_matrix = as.matrix(aug_data[, c("X1", "X2")])
+  eval_counter <- 0
+
+  # Clean visual header for a new optimization run
+  cat("\n=======================================================\n")
+  cat("       Starting Optimization for New Sample            \n")
+  cat("=======================================================\n\n")
 
   rMAP_loss = function(c) {
+
+    eval_counter <<- eval_counter + 1
 
     # Call the compiled C++ function
     loss = spline_rMAP_loss_cpp(
@@ -335,20 +338,57 @@ find_rMAP_Path_Modes = function(data, pos_sd, vel_sd, trajectoryPost, border, N_
       Lt                = Lt
     )
 
+    if (eval_counter %% print_every == 0) {
+
+      # Truncate C array so it doesn't word-wrap in the console
+      n_c = length(c)
+      if (n_c > 6) {
+        c_str = paste0(sprintf("%.3f, %.3f, %.3f", c[1], c[2], c[3]),
+                       ", ... , ",
+                       sprintf("%.3f, %.3f, %.3f", c[n_c-2], c[n_c-1], c[n_c]))
+      } else {
+        c_str = paste(sprintf("%.3f", c), collapse = ", ")
+      }
+
+      # Formatted output with trailing newline
+      cat(sprintf("  Iter: %4d  |  Loss: %12.4f  |  C: [%s]\n",
+                  eval_counter, loss, c_str))
+    }
+
     return(loss)
   }
 
+  # =================================================================
   # Step 7: Run the optimization
+  # =================================================================
+
   opt_result = nloptr(
-    x0 = start_c,            # Your randomly perturbed initial guess
-    eval_f = rMAP_loss,      # The wrapper function
+    x0 = start_c,
+    eval_f = rMAP_loss,
     opts = list(
-      "algorithm" = "NLOPT_LN_NEWUOA", # Derivative-free trust region method
-      "ftol_rel"  = 1e-6,              # Relative tolerance for convergence
-      "maxeval"   = 2000,               # Hard cap to prevent infinite loops
-      "print_level" = 1
+      "algorithm"   = "NLOPT_LN_NEWUOA",
+      "ftol_rel"    = 1e-6,
+      "maxeval"     = 2000,
+      "print_level" = 0
     )
   )
+
+  # Format the Final output identically
+  final_c = opt_result$solution
+  n_fc = length(final_c)
+  if (n_fc > 6) {
+    final_c_str = paste0(sprintf("%.3f, %.3f, %.3f", final_c[1], final_c[2], final_c[3]),
+                         ", ... , ",
+                         sprintf("%.3f, %.3f, %.3f", final_c[n_fc-2], final_c[n_fc-1], final_c[n_fc]))
+  } else {
+    final_c_str = paste(sprintf("%.3f", final_c), collapse = ", ")
+  }
+
+  # Add visual footer to close out the optimization block
+  cat("\n-------------------------------------------------------\n")
+  cat(sprintf("  FINAL Iter: %4d  |  Loss: %12.4f  |  C: [%s]\n",
+              opt_result$iterations, opt_result$objective, final_c_str))
+  cat("-------------------------------------------------------\n\n")
 
   # Step 8: Extract the optimized control points
   optimized_c = opt_result$solution
@@ -389,28 +429,87 @@ find_rMAP_Path_Modes = function(data, pos_sd, vel_sd, trajectoryPost, border, N_
 
   ## Prior Loss
 
-  opt_prior_NLL = (t(opt_c_x - start_c_x) %*% inv_c_prior_sigma %*% (opt_c_x - start_c_x) + t(opt_c_y - start_c_y) %*% inv_c_prior_sigma %*% (opt_c_y - start_c_y)) / 2
+  opt_prior_NLL = as.numeric((t(opt_c_x - start_c_x) %*% inv_c_prior_sigma %*% (opt_c_x - start_c_x) + t(opt_c_y - start_c_y) %*% inv_c_prior_sigma %*% (opt_c_y - start_c_y)) / 2)
 
   opt_NLL = opt_pos_NLL + opt_vel_NLL + opt_prior_NLL
 
-  plot(opt_path_x, opt_path_y)
+  cat("\n")
 
-  list()
+  if(plot){
+
+    ggplot() + geom_path(aes(x = opt_path_x, y = opt_path_y), size = 0.75) + geom_point(data = aug_data, aes(x = X1, y = X2), color = 'red')
+
+  }
+
+  list(Optimized_C = cbind(opt_c_x, opt_c_y), Optimized_Path = cbind(opt_path_x, opt_path_y), Posterior_NLL_Position = opt_pos_NLL, Posterior_NLL_Velocity = opt_vel_NLL, Posterior_NLL_Prior = opt_prior_NLL)
 
 }
 
+run_rMAP_Trajectory = function(N_samples, data, pos_sd, vel_sd, pos_selection_sd, trajectoryPost, border, N_quad, baseVectorFields_Vec, prior_nodes, full_nodes, print_every = 50, plot = F){
+
+  N_full_nodes = length(full_nodes)
+
+  C_X_Samples = matrix(nrow = N_samples, ncol = N_full_nodes+4)
+  C_Y_Samples = matrix(nrow = N_samples, ncol = N_full_nodes+4)
+
+  Path_X_Samples = matrix(nrow = N_samples, ncol = N_quad)
+  Path_Y_Samples = matrix(nrow = N_samples, ncol = N_quad)
+
+  NLL_Pos = rep(0, N_samples)
+  NLL_Vel = rep(0, N_samples)
+  NLL_Prior = rep(0, N_samples)
+
+  for(i in 1:N_samples){
+
+    cat(sprintf("=========== PROGRESS: Sample %d of %d ===========\n", i, N_samples))
+    flush.console()
+
+    cur_sample = find_rMAP_Path_Modes(data = data, pos_sd = pos_sd, vel_sd = vel_sd, pos_selection_sd = pos_selection_sd, trajectoryPost = trajectoryPost, border = c(-2,-2,2,2),
+                                      N_quad = N_quad, baseVectorFields_Vec = baseVectorFields_Vec, prior_nodes = prior_nodes, full_nodes = full_nodes, print_every = print_every, plot = T)
+
+    C_X_Samples[i,] = cur_sample$Optimized_C[,1]
+    C_Y_Samples[i,] = cur_sample$Optimized_C[,2]
+
+    Path_X_Samples[i,] = cur_sample$Optimized_Path[,1]
+    Path_Y_Samples[i,] = cur_sample$Optimized_Path[,2]
+
+    NLL_Pos[i] = cur_sample$Posterior_NLL_Position
+    NLL_Vel[i] = cur_sample$Posterior_NLL_Velocity
+    NLL_Prior[i] = cur_sample$Posterior_NLL_Prior
+
+  }
+
+  list(C_Draws_X = C_X_Samples, C_Draws_Y = C_Y_Samples, Path_X_Samples = Path_X_Samples, Path_Y_Samples = Path_Y_Samples,
+       NLL_Pos = NLL_Pos, NLL_Vel = NLL_Vel, NLL_Prior = NLL_Prior)
+
+}
+
+## Testing ##
+
+trajectoryPost = cbind(real_traj_test_1$Beta1Posterior, real_traj_test_1$Beta2Posterior)
+data = sim_data_list[[18]]
+pos_sd = 0.001
+pos_selection_sd = 0.001
+vel_sd = 0.001
+N_prior_nodes = 4
+prior_nodes = seq(0, max(data$t), length.out = N_prior_nodes+2)[-c(1,N_prior_nodes+2)]
+N_full_nodes = 20
+full_nodes = seq(0, max(data$t), length.out = N_full_nodes+2)[-c(1,N_full_nodes+2)]
+N_quad = 1000
+
+N_samples = 100
+
+test_path_samples = run_rMAP_Trajectory(N_samples = 100, data = data, pos_sd = pos_sd, vel_sd = vel_sd, pos_selection_sd = pos_selection_sd,
+                                        trajectoryPost = trajectoryPost, border = c(-2,-2,2,2), N_quad = N_quad,
+                                        baseVectorFields_Vec = baseVectorFields_Vec, prior_nodes = prior_nodes, full_nodes = full_nodes, print_every = 500, plot = T)
 
 
 
+PCA_Path_Samples = prcomp(cbind(test_path_samples$C_Draws_X, test_path_samples$C_Draws_Y), center = T, scale. = T)
 
+N_comp = 2
 
-
-
-
-
-
-
-
+ggplot(PCA_Path_Samples$x[,1:N_comp], aes(x = PC1, y = PC2)) + geom_point(aes(color = log(test_path_samples$NLL_Pos+test_path_samples$NLL_Vel+test_path_samples$NLL_Prior)))
 
 
 
