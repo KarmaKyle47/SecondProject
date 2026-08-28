@@ -407,7 +407,7 @@ find_rMAP_Path_Modes = function(data, pos_sd, vel_sd, pos_selection_sd, trajecto
   opt_path_x_d = Phi_full_d %*% opt_c_x
   opt_path_y_d = Phi_full_d %*% opt_c_y
 
-  opt_path_traj_vel = TrajWeightedBaseVectorFields_2D_Cosine(cbind(t_quad, opt_path_x, opt_path_y), sampledTrajectory, baseVectorFields_Vec, border) + cbind(rand_vel_x, rand_vel_y)
+  opt_path_traj_vel = TrajWeightedBaseVectorFields_2D_Cosine(cbind(t_quad, opt_path_x, opt_path_y), sampledTrajectory, baseVectorFields_Vec, border)
 
   opt_path_traj_vel_x = opt_path_traj_vel[,1]
   opt_path_traj_vel_y = opt_path_traj_vel[,2]
@@ -415,8 +415,8 @@ find_rMAP_Path_Modes = function(data, pos_sd, vel_sd, pos_selection_sd, trajecto
 
   ## Positional Loss
 
-  data_diff_x = aug_data$X1 - opt_path_data_x
-  data_diff_y = aug_data$X2 - opt_path_data_y
+  data_diff_x = data$X1 - opt_path_data_x
+  data_diff_y = data$X2 - opt_path_data_y
 
   opt_pos_NLL = sum(data_diff_x^2 + data_diff_y^2) / (2 * pos_sd^2)
 
@@ -429,7 +429,7 @@ find_rMAP_Path_Modes = function(data, pos_sd, vel_sd, pos_selection_sd, trajecto
 
   ## Prior Loss
 
-  opt_prior_NLL = as.numeric((t(opt_c_x - start_c_x) %*% inv_c_prior_sigma %*% (opt_c_x - start_c_x) + t(opt_c_y - start_c_y) %*% inv_c_prior_sigma %*% (opt_c_y - start_c_y)) / 2)
+  opt_prior_NLL = as.numeric((t(opt_c_x - prior_full_c_x) %*% inv_c_prior_sigma %*% (opt_c_x - prior_full_c_x) + t(opt_c_y - prior_full_c_y) %*% inv_c_prior_sigma %*% (opt_c_y - prior_full_c_y)) / 2)
 
   opt_NLL = opt_pos_NLL + opt_vel_NLL + opt_prior_NLL
 
@@ -501,15 +501,85 @@ N_samples = 100
 
 test_path_samples = run_rMAP_Trajectory(N_samples = 100, data = data, pos_sd = pos_sd, vel_sd = vel_sd, pos_selection_sd = pos_selection_sd,
                                         trajectoryPost = trajectoryPost, border = c(-2,-2,2,2), N_quad = N_quad,
-                                        baseVectorFields_Vec = baseVectorFields_Vec, prior_nodes = prior_nodes, full_nodes = full_nodes, print_every = 500, plot = T)
+                                        baseVectorFields_Vec = baseVectorFields_Vec, prior_nodes = prior_nodes, full_nodes = full_nodes, print_every = 500, plot = F)
+hist(test_path_samples$NLL_Prior)
 
+total_NLL = test_path_samples$NLL_Pos + test_path_samples$NLL_Vel + test_path_samples$NLL_Prior
 
+path_samples_plotting = data.frame(t = rep(seq(min(data$t),max(data$t), length.out = N_quad), N_samples), X1 = c(t(test_path_samples$Path_X_Samples)), X2 = c(t(test_path_samples$Path_Y_Samples)), Sample = rep(1:N_samples, each = N_quad))
 
-PCA_Path_Samples = prcomp(cbind(test_path_samples$C_Draws_X, test_path_samples$C_Draws_Y), center = T, scale. = T)
+ggplot(data = path_samples_plotting, aes(x = X1, y = X2, group = Sample)) + geom_path(alpha = 0.2)
 
+?prcomp
+
+PCA_Path_Samples = prcomp(cbind(test_path_samples$C_Draws_X, test_path_samples$C_Draws_Y), center = T, scale. = F)
+PCA_Path_Summary = summary(PCA_Path_Samples)
 N_comp = 2
 
-ggplot(PCA_Path_Samples$x[,1:N_comp], aes(x = PC1, y = PC2)) + geom_point(aes(color = log(test_path_samples$NLL_Pos+test_path_samples$NLL_Vel+test_path_samples$NLL_Prior)))
+ggplot(PCA_Path_Samples$x, aes(x = PC1, y = PC2)) +
+  geom_point(aes(color = log(test_path_samples$NLL_Pos+test_path_samples$NLL_Vel+test_path_samples$NLL_Prior))) +
+  labs(color = "NLL")
 
+
+## K-Means on the top principle components
+
+library(cluster)
+library(factoextra)
+
+N_important_PC = as.numeric(which(PCA_Path_Summary$importance[3,] > 0.99)[1])
+
+PCA_sub = PCA_Path_Samples$x[,1:(N_important_PC)]
+W_pca = PCA_Path_Samples$rotation[,1:(N_important_PC)]
+mu_pca = PCA_Path_Samples$center
+
+run_k_means = function(PCA_sub, max_k){
+
+  ## Find optimal k
+
+  gap_stat <- clusGap(PCA_sub, FUNcluster = kmeans, K.max = max_k, B = 1000)
+  optimal_K <- maxSE(gap_stat$Tab[, "gap"], gap_stat$Tab[, "SE.sim"], method = "firstSEmax")
+
+  opt_k_means = kmeans(PCA_sub, centers = optimal_K)
+
+  list(K = optimal_K, K_means = opt_k_means)
+}
+
+path_samples = test_path_samples
+PC_importance_threshold = 0.99
+max_clusters = 10
+
+get_starting_mode_paths = function(path_samples, PC_importance_threshold, max_clusters){
+
+
+
+
+}
+
+
+test_k_means = run_k_means(PCA_sub = PCA_sub, max_k = 10)
+
+
+ggplot(PCA_Path_Samples$x, aes(x = PC1, y = PC2)) +
+  geom_point(aes(color = as.factor(test_k_means$K_means$cluster))) +
+  labs(color = "Cluster")
+
+ggplot() + geom_boxplot(aes(y = log(total_NLL), group = test_k_means$K_means$cluster), notch = T)
+
+
+K_means_centers = test_k_means$K_means$centers
+K_means_K = test_k_means$K
+
+PCA_center_c = K_means_centers %*% t(W_pca) + matrix(rep(mu_pca, K_means_K), nrow = K_means_K, byrow = T)
+
+PCA_center_c_x = PCA_center_c[,1:(N_full_nodes+4)]
+PCA_center_c_y = PCA_center_c[,1:(N_full_nodes+4) + (N_full_nodes+4)]
+
+t_quad = seq(min(data$t), max(data$t), length.out = N_quad)
+Phi_full = bSpline(t_quad, knots = full_nodes, intercept = T)
+
+PCA_center_path_x = Phi_full %*% t(PCA_center_c_x)
+PCA_center_path_y = Phi_full %*% t(PCA_center_c_y)
+
+PCA_center_plotting_df = data.frame(t = rep(t_quad, K_means_K), X1 = c(PCA_center_path_x), X2 = c(PCA_center_path_y), Center = rep(1:3, each = N_quad))
 
 
