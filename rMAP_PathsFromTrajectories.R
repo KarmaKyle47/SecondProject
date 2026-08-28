@@ -548,38 +548,237 @@ path_samples = test_path_samples
 PC_importance_threshold = 0.99
 max_clusters = 10
 
+## Get the starting paths for finding the true modes
+
 get_starting_mode_paths = function(path_samples, PC_importance_threshold, max_clusters){
 
+  N_coefs = ncol(path_samples$C_Draws_X)
 
+  path_coef_pca = prcomp(cbind(path_samples$C_Draws_X, path_samples$C_Draws_Y), center = T, scale. = F)
+  pca_summary = summary(path_coef_pca)
 
+  N_PCs = as.numeric(which(pca_summary$importance[3,] > 0.99)[1])
+
+  PCA_sub = path_coef_pca$x[,1:(N_PCs)]
+  W_pca = path_coef_pca$rotation[,1:(N_PCs)]
+  mu_pca = path_coef_pca$center
+
+  k_means = run_k_means(PCA_sub = PCA_sub, max_k = max_clusters)
+
+  K_means_centers = k_means$K_means$centers
+  K_means_K = k_means$K
+
+  PCA_center_c = K_means_centers %*% t(W_pca) + matrix(rep(mu_pca, K_means_K), nrow = K_means_K, byrow = T)
+
+  PCA_center_c_x = PCA_center_c[,1:N_coefs]
+  PCA_center_c_y = PCA_center_c[,1:N_coefs + N_coefs]
+
+  list(Center_c_x = PCA_center_c_x, Center_c_y = PCA_center_c_y)
 
 }
 
-
-test_k_means = run_k_means(PCA_sub = PCA_sub, max_k = 10)
-
-
-ggplot(PCA_Path_Samples$x, aes(x = PC1, y = PC2)) +
-  geom_point(aes(color = as.factor(test_k_means$K_means$cluster))) +
-  labs(color = "Cluster")
-
-ggplot() + geom_boxplot(aes(y = log(total_NLL), group = test_k_means$K_means$cluster), notch = T)
-
-
-K_means_centers = test_k_means$K_means$centers
-K_means_K = test_k_means$K
-
-PCA_center_c = K_means_centers %*% t(W_pca) + matrix(rep(mu_pca, K_means_K), nrow = K_means_K, byrow = T)
-
-PCA_center_c_x = PCA_center_c[,1:(N_full_nodes+4)]
-PCA_center_c_y = PCA_center_c[,1:(N_full_nodes+4) + (N_full_nodes+4)]
+Mode_Opt_Paths = get_starting_mode_paths(path_samples = test_path_samples, PC_importance_threshold = 0.99, max_clusters = 10)
 
 t_quad = seq(min(data$t), max(data$t), length.out = N_quad)
 Phi_full = bSpline(t_quad, knots = full_nodes, intercept = T)
 
+PCA_center_c_x = Mode_Opt_Paths$Center_c_x
+PCA_center_c_y = Mode_Opt_Paths$Center_c_y
+
 PCA_center_path_x = Phi_full %*% t(PCA_center_c_x)
 PCA_center_path_y = Phi_full %*% t(PCA_center_c_y)
 
+K_means_K = nrow(PCA_center_c_x)
+
 PCA_center_plotting_df = data.frame(t = rep(t_quad, K_means_K), X1 = c(PCA_center_path_x), X2 = c(PCA_center_path_y), Center = rep(1:3, each = N_quad))
 
+ggplot(data = PCA_center_plotting_df, aes(x = X1, y = X2, group = Center)) + geom_path()
 
+## Optimize from the pca found centers
+
+center_c_start = cbind(PCA_center_c_x[1,], PCA_center_c_y[2,])
+
+find_mode_location = function(center_c_start, data, pos_sd, vel_sd, pos_selection_sd, trajectoryPost, border, N_quad, baseVectorFields_Vec, full_nodes, print_every){
+
+  center_c_start_x = center_c_start[,1]
+  center_c_start_y = center_c_start[,2]
+
+  center_c_start_full = c(center_c_start)
+
+  # Step 1: Get Mean Trajectory - to optimize the mode path with the mean trajectory
+
+  meanPostTrajectory = matrix(colMeans(trajectoryPost), ncol = 2, byrow = F)
+
+  # Step 2: Augment Data with positional error
+  # data is Nx3 with columns t, X1, X2
+
+  N = nrow(data)
+
+  # Step 3: Get prior path using a bSpline regression with prior_nodes
+
+  t_quad = seq(min(data$t), max(data$t), length.out = N_quad)
+
+  # Step 4: Get full path basis to add onto prior with full nodes
+
+  Phi_data_full = bSpline(data$t, knots = full_nodes, intercept = T)
+  Phi_full = bSpline(t_quad, knots = full_nodes, intercept = T)
+  Phi_full_d = bSpline(t_quad, knots = full_nodes, intercept = T, derivs = 1)
+  N_param = ncol(Phi_full)
+
+  # Step 5: Sample random initial path
+  Lt = max(data$t) - min(data$t)
+
+  helper_M = t(Phi_full) %*% Phi_full
+  helper_M_inv = ginv(helper_M)
+
+  c_prior_sigma = (N_quad / Lt * pos_selection_sd^2) * helper_M_inv
+  inv_c_prior_sigma = (Lt / (N_quad * pos_selection_sd^2)) * helper_M
+
+  # =================================================================
+  # Step 6: Define loss function
+  # =================================================================
+
+  aug_X_matrix = as.matrix(data[, c("X1", "X2")])
+  eval_counter <- 0
+
+  # Clean visual header for a new optimization run
+  cat("\n=======================================================\n")
+  cat("       Starting Optimization for New Mode            \n")
+  cat("=======================================================\n\n")
+
+  rMAP_loss = function(c) {
+
+    eval_counter <<- eval_counter + 1
+
+    # Call the compiled C++ function
+    loss = spline_rMAP_loss_cpp(
+      c_params          = c,
+      Phi_data          = Phi_data_full,
+      Phi_quad          = Phi_full,
+      Phi_deriv_quad    = Phi_full_d,
+      aug_X             = aug_X_matrix,
+      sampledTrajectory = meanPostTrajectory,
+      border            = border,
+      pos_sd            = pos_sd,
+      vel_sd            = vel_sd,
+      rand_vel_x        = rep(0,N_quad),
+      rand_vel_y        = rep(0,N_quad),
+      prior_c           = center_c_start_full,
+      inv_c_prior_sigma = inv_c_prior_sigma,
+      Lt                = Lt
+    )
+
+    if (eval_counter %% print_every == 0) {
+
+      # Truncate C array so it doesn't word-wrap in the console
+      n_c = length(c)
+      if (n_c > 6) {
+        c_str = paste0(sprintf("%.3f, %.3f, %.3f", c[1], c[2], c[3]),
+                       ", ... , ",
+                       sprintf("%.3f, %.3f, %.3f", c[n_c-2], c[n_c-1], c[n_c]))
+      } else {
+        c_str = paste(sprintf("%.3f", c), collapse = ", ")
+      }
+
+      # Formatted output with trailing newline
+      cat(sprintf("  Iter: %4d  |  Loss: %12.4f  |  C: [%s]\n",
+                  eval_counter, loss, c_str))
+    }
+
+    return(loss)
+  }
+
+  # =================================================================
+  # Step 7: Run the optimization
+  # =================================================================
+
+  opt_result = nloptr(
+    x0 = center_c_start_full,
+    eval_f = rMAP_loss,
+    opts = list(
+      "algorithm"   = "NLOPT_LN_NEWUOA",
+      "ftol_rel"    = 1e-6,
+      "maxeval"     = 2000,
+      "print_level" = 0
+    )
+  )
+
+  # Format the Final output identically
+  final_c = opt_result$solution
+  n_fc = length(final_c)
+  if (n_fc > 6) {
+    final_c_str = paste0(sprintf("%.3f, %.3f, %.3f", final_c[1], final_c[2], final_c[3]),
+                         ", ... , ",
+                         sprintf("%.3f, %.3f, %.3f", final_c[n_fc-2], final_c[n_fc-1], final_c[n_fc]))
+  } else {
+    final_c_str = paste(sprintf("%.3f", final_c), collapse = ", ")
+  }
+
+  # Add visual footer to close out the optimization block
+  cat("\n-------------------------------------------------------\n")
+  cat(sprintf("  FINAL Iter: %4d  |  Loss: %12.4f  |  C: [%s]\n",
+              opt_result$iterations, opt_result$objective, final_c_str))
+  cat("-------------------------------------------------------\n\n")
+
+  # Step 8: Extract the optimized control points
+  optimized_c = opt_result$solution
+
+  opt_c_x = optimized_c[1:N_param]
+  opt_c_y = optimized_c[1:N_param + N_param]
+
+  # Eval Optimized Path
+
+  opt_path_x = Phi_full %*% opt_c_x
+  opt_path_y = Phi_full %*% opt_c_y
+
+  opt_path_data_x = Phi_data_full %*% opt_c_x
+  opt_path_data_y = Phi_data_full %*% opt_c_y
+
+  opt_path_x_d = Phi_full_d %*% opt_c_x
+  opt_path_y_d = Phi_full_d %*% opt_c_y
+
+  opt_path_traj_vel = TrajWeightedBaseVectorFields_2D_Cosine(cbind(t_quad, opt_path_x, opt_path_y), meanPostTrajectory, baseVectorFields_Vec, border)
+
+  opt_path_traj_vel_x = opt_path_traj_vel[,1]
+  opt_path_traj_vel_y = opt_path_traj_vel[,2]
+
+
+  ## Positional Loss
+
+  data_diff_x = data$X1 - opt_path_data_x
+  data_diff_y = data$X2 - opt_path_data_y
+
+  opt_pos_NLL = sum(data_diff_x^2 + data_diff_y^2) / (2 * pos_sd^2)
+
+  ## Velocity Loss
+
+  vel_diff_x = opt_path_x_d - opt_path_traj_vel_x
+  vel_diff_y = opt_path_y_d - opt_path_traj_vel_y
+
+  opt_vel_NLL = sum(vel_diff_x^2 + vel_diff_y^2) / (2 * vel_sd^2) * (Lt/N_quad)
+
+  ## Prior Loss
+
+  opt_prior_NLL = as.numeric((t(opt_c_x - center_c_start_x) %*% inv_c_prior_sigma %*% (opt_c_x - center_c_start_x) + t(opt_c_y - center_c_start_y) %*% inv_c_prior_sigma %*% (opt_c_y - center_c_start_y)) / 2)
+
+  opt_NLL = opt_pos_NLL + opt_vel_NLL + opt_prior_NLL
+
+  cat("\n")
+
+  if(plot){
+
+    ggplot() + geom_path(aes(x = opt_path_x, y = opt_path_y), size = 0.75) + geom_point(data = aug_data, aes(x = X1, y = X2), color = 'red')
+
+  }
+
+  list(Optimized_C = cbind(opt_c_x, opt_c_y), Optimized_Path = cbind(opt_path_x, opt_path_y), Posterior_NLL_Position = opt_pos_NLL, Posterior_NLL_Velocity = opt_vel_NLL, Posterior_NLL_Prior = opt_prior_NLL)
+
+}
+
+get_posterior_path_modes = function(center_c_start_mat, data, pos_sd, vel_sd, pos_selection_sd, trajectoryPost, border, N_quad, baseVectorFields_Vec, full_nodes, print_every){
+
+  #Define matrices for mode coefficients, mode path evaluations, NLL evaluations
+
+  #Loops through all mode starting locations
+
+}
