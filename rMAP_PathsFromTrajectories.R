@@ -598,16 +598,12 @@ ggplot(data = PCA_center_plotting_df, aes(x = X1, y = X2, group = Center)) + geo
 
 center_c_start = cbind(PCA_center_c_x[1,], PCA_center_c_y[2,])
 
-find_mode_location = function(center_c_start, data, pos_sd, vel_sd, pos_selection_sd, trajectoryPost, border, N_quad, baseVectorFields_Vec, full_nodes, print_every){
+find_mode_location = function(center_c_start, data, pos_sd, vel_sd, pos_selection_sd, trajectoryMode, border, N_quad, baseVectorFields_Vec, full_nodes, print_every, plot){
 
   center_c_start_x = center_c_start[,1]
   center_c_start_y = center_c_start[,2]
 
   center_c_start_full = c(center_c_start)
-
-  # Step 1: Get Mean Trajectory - to optimize the mode path with the mean trajectory
-
-  meanPostTrajectory = matrix(colMeans(trajectoryPost), ncol = 2, byrow = F)
 
   # Step 2: Augment Data with positional error
   # data is Nx3 with columns t, X1, X2
@@ -657,7 +653,7 @@ find_mode_location = function(center_c_start, data, pos_sd, vel_sd, pos_selectio
       Phi_quad          = Phi_full,
       Phi_deriv_quad    = Phi_full_d,
       aug_X             = aug_X_matrix,
-      sampledTrajectory = meanPostTrajectory,
+      sampledTrajectory = trajectoryMode,
       border            = border,
       pos_sd            = pos_sd,
       vel_sd            = vel_sd,
@@ -737,7 +733,7 @@ find_mode_location = function(center_c_start, data, pos_sd, vel_sd, pos_selectio
   opt_path_x_d = Phi_full_d %*% opt_c_x
   opt_path_y_d = Phi_full_d %*% opt_c_y
 
-  opt_path_traj_vel = TrajWeightedBaseVectorFields_2D_Cosine(cbind(t_quad, opt_path_x, opt_path_y), meanPostTrajectory, baseVectorFields_Vec, border)
+  opt_path_traj_vel = TrajWeightedBaseVectorFields_2D_Cosine(cbind(t_quad, opt_path_x, opt_path_y), trajectoryMode, baseVectorFields_Vec, border)
 
   opt_path_traj_vel_x = opt_path_traj_vel[,1]
   opt_path_traj_vel_y = opt_path_traj_vel[,2]
@@ -767,18 +763,85 @@ find_mode_location = function(center_c_start, data, pos_sd, vel_sd, pos_selectio
 
   if(plot){
 
-    ggplot() + geom_path(aes(x = opt_path_x, y = opt_path_y), size = 0.75) + geom_point(data = aug_data, aes(x = X1, y = X2), color = 'red')
+    mode_plot = ggplot() + geom_path(aes(x = opt_path_x, y = opt_path_y), size = 0.75) + geom_point(data = data, aes(x = X1, y = X2), color = 'red')
 
+  } else{
+    mode_plot = NULL
   }
 
-  list(Optimized_C = cbind(opt_c_x, opt_c_y), Optimized_Path = cbind(opt_path_x, opt_path_y), Posterior_NLL_Position = opt_pos_NLL, Posterior_NLL_Velocity = opt_vel_NLL, Posterior_NLL_Prior = opt_prior_NLL)
+  return(list(Optimized_C = cbind(opt_c_x, opt_c_y), Optimized_Path = cbind(opt_path_x, opt_path_y), Posterior_NLL_Position = opt_pos_NLL, Posterior_NLL_Velocity = opt_vel_NLL, Posterior_NLL_Prior = opt_prior_NLL, Plot = mode_plot))
 
 }
 
-get_posterior_path_modes = function(center_c_start_mat, data, pos_sd, vel_sd, pos_selection_sd, trajectoryPost, border, N_quad, baseVectorFields_Vec, full_nodes, print_every){
+center_c_start_mat_x = Mode_Opt_Paths$Center_c_x
+center_c_start_mat_y = Mode_Opt_Paths$Center_c_y
+
+trajectoryModes = list(matrix(trajectoryPost[37,], ncol = 2, byrow = F), matrix(trajectoryPost[56,], ncol = 2, byrow = F), matrix(trajectoryPost[100,], ncol = 2, byrow = F))
+
+get_posterior_path_modes = function(center_c_start_mat_x, center_c_start_mat_y, data, pos_sd, vel_sd, pos_selection_sd, trajectoryModes, border, N_quad, baseVectorFields_Vec, full_nodes, print_every, plot){
 
   #Define matrices for mode coefficients, mode path evaluations, NLL evaluations
 
+  N_path_modes = nrow(center_c_start_mat_x)
+  N_traj_modes = length(trajectoryModes)
+  N_combos = N_path_modes * N_traj_modes
+  N_c = ncol(center_c_start_mat_x)
+
+  path_mode_c_x = matrix(nrow = N_combos, ncol = N_c)
+  path_mode_c_y = matrix(nrow = N_combos, ncol = N_c)
+
+  path_mode_eval_x = matrix(nrow = N_combos, ncol = N_quad)
+  path_mode_eval_y = matrix(nrow = N_combos, ncol = N_quad)
+
+  path_mode_NLL_pos = rep(0, N_combos)
+  path_mode_NLL_vel = rep(0, N_combos)
+  path_mode_NLL_prior = rep(0, N_combos)
+
+  if(plot){
+    path_mode_plots = list()
+  } else{
+    path_mode_plots = NULL
+  }
+
   #Loops through all mode starting locations
 
+  for(i in 1:N_traj_modes){
+
+    cur_trajMode = trajectoryModes[[i]]
+
+    for(j in 1:N_path_modes){
+
+      cur_path_start = cbind(center_c_start_mat_x[j,], center_c_start_mat_y[j,])
+
+      cur_pathMode = find_mode_location(center_c_start = cur_path_start, data = data, pos_sd = pos_sd, vel_sd = vel_sd, pos_selection_sd = pos_selection_sd, trajectoryMode = cur_trajMode, border = border, N_quad = N_quad, baseVectorFields_Vec = baseVectorFields_Vec, full_nodes = full_nodes, print_every = print_every, plot = plot)
+
+      path_mode_c_x[(N_traj_modes)*(i-1) + j,] = cur_pathMode$Optimized_C[,1]
+      path_mode_c_y[(N_traj_modes)*(i-1) + j,] = cur_pathMode$Optimized_C[,2]
+
+      path_mode_eval_x[(N_traj_modes)*(i-1) + j,] = cur_pathMode$Optimized_Path[,1]
+      path_mode_eval_y[(N_traj_modes)*(i-1) + j,] = cur_pathMode$Optimized_Path[,2]
+
+      path_mode_NLL_pos[(N_traj_modes)*(i-1) + j] = cur_pathMode$Posterior_NLL_Position
+      path_mode_NLL_vel[(N_traj_modes)*(i-1) + j] = cur_pathMode$Posterior_NLL_Velocity
+      path_mode_NLL_prior[(N_traj_modes)*(i-1) + j] = cur_pathMode$Posterior_NLL_Prior
+
+      if(plot){
+        path_mode_plots[[(N_traj_modes)*(i-1) + j]] = cur_pathMode$Plot
+      }
+
+    }
+
+  }
+
+  return(list(C_X = path_mode_c_x, C_Y = path_mode_c_y, Path_X = path_mode_eval_x, Path_Y = path_mode_eval_y, NLL_Pos = path_mode_NLL_pos, NLL_Vel = path_mode_NLL_vel, NLL_Prior = path_mode_NLL_prior, Plots = path_mode_plots))
+
 }
+
+test_posterior_path_modes = get_posterior_path_modes(center_c_start_mat_x = center_c_start_mat_x, center_c_start_mat_y = center_c_start_mat_y,
+                                                     data = data, pos_sd = pos_sd, vel_sd = vel_sd, pos_selection_sd = pos_selection_sd, trajectoryModes = trajectoryModes, border = border, N_quad = N_quad, baseVectorFields_Vec = baseVectorFields_Vec, full_nodes = full_nodes, print_every = print_every, plot = plot)
+
+
+
+
+
+
