@@ -739,9 +739,7 @@ get_posterior_traj_modes = function(center_beta_mat_start_1, center_beta_mat_sta
 
 test_posterior_traj_modes = get_posterior_traj_modes(center_beta_mat_start_1 = center_beta_mat_start_1, center_beta_mat_start_2 = center_beta_mat_start_2, sim_data_list = sim_data_list, pos_sd = 0.001, vel_sd = 0.1, M = 2, prior_k = 0.35, prior_l = 1, baseVectorFields_Vec = baseVectorFields_Vec, border = c(-2,-2,2,2), N_prop_steps = 10, traj_eval_grid = traj_eval_grid, print_every = 50, unique_tol = 0.001)
 
-test_posterior_traj_modes$Total_Unique_Modes
-
-postior_traj_mode_NLL = test_posterior_traj_modes$NLL_Pos + test_posterior_traj_modes$NLL_Prior
+posterior_traj_mode_NLL = test_posterior_traj_modes$NLL_Pos + test_posterior_traj_modes$NLL_Prior
 
 posterior_traj_mode_1 = test_posterior_traj_modes$Beta1[1,]
 posterior_traj_mode_2 = test_posterior_traj_modes$Beta2[1,]
@@ -820,7 +818,6 @@ get_one_traj_hessian = function(posterior_traj_mode_1, posterior_traj_mode_2, si
   H_matrix = numDeriv::hessian(func = rMAP_loss, x = start_beta_vec)
 
   H_matrix
-  NLL
 
 }
 
@@ -850,15 +847,11 @@ get_posterior_traj_hessians = function(posterior_traj_mode_mat_1, posterior_traj
 
   }
 
-  return(list(Beta1 = traj_mode_beta1, Beta2 = traj_mode_beta2, TrajVals1 = traj_mode_eval1, TrajVals2 = traj_mode_eval2, NLL_Pos = traj_mode_NLL_pos, NLL_Prior = traj_mode_NLL_prior))
-
+  return(traj_hessians)
 
 }
 
-c(test_posterior_traj_modes$Beta1[4,], test_posterior_traj_modes$Beta2[4,])
-
-H_matrix = numDeriv::hessian(func = rMAP_loss, x = c(test_posterior_traj_modes$Beta1[4,], test_posterior_traj_modes$Beta2[4,]))
-
+run_RWMH_one_traj_mode = function()
 
 ### Tests
 
