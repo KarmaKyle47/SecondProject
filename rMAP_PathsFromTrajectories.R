@@ -249,7 +249,7 @@ prior_nodes = seq(0, max(data$t), length.out = 6)[-c(1,12)]
 full_nodes = seq(0, max(data$t), length.out = 22)[-c(1,52)]
 N_quad = 1000
 
-find_rMAP_Path_Modes = function(data, pos_sd, vel_sd, pos_selection_sd, trajectoryPost, border, N_quad, baseVectorFields_Vec, prior_nodes, full_nodes, print_every, plot){
+find_one_rMAP_Path = function(data, pos_sd, vel_sd, pos_selection_sd, trajectoryPost, border, N_quad, baseVectorFields_Vec, prior_nodes, full_nodes, print_every, plot){
 
   # Step 1: Sample Trajectory - trajectory Post is a data.frame or matrix with each posterior draw as a row
 
@@ -445,7 +445,7 @@ find_rMAP_Path_Modes = function(data, pos_sd, vel_sd, pos_selection_sd, trajecto
 
 }
 
-run_rMAP_Trajectory = function(N_samples, data, pos_sd, vel_sd, pos_selection_sd, trajectoryPost, border, N_quad, baseVectorFields_Vec, prior_nodes, full_nodes, print_every = 50, plot = F){
+run_rMAP_Path = function(N_samples, data, pos_sd, vel_sd, pos_selection_sd, trajectoryPost, border, N_quad, baseVectorFields_Vec, prior_nodes, full_nodes, print_every = 50, plot = F){
 
   N_full_nodes = length(full_nodes)
 
@@ -464,7 +464,7 @@ run_rMAP_Trajectory = function(N_samples, data, pos_sd, vel_sd, pos_selection_sd
     cat(sprintf("=========== PROGRESS: Sample %d of %d ===========\n", i, N_samples))
     flush.console()
 
-    cur_sample = find_rMAP_Path_Modes(data = data, pos_sd = pos_sd, vel_sd = vel_sd, pos_selection_sd = pos_selection_sd, trajectoryPost = trajectoryPost, border = c(-2,-2,2,2),
+    cur_sample = find_one_rMAP_Path(data = data, pos_sd = pos_sd, vel_sd = vel_sd, pos_selection_sd = pos_selection_sd, trajectoryPost = trajectoryPost, border = c(-2,-2,2,2),
                                       N_quad = N_quad, baseVectorFields_Vec = baseVectorFields_Vec, prior_nodes = prior_nodes, full_nodes = full_nodes, print_every = print_every, plot = T)
 
     C_X_Samples[i,] = cur_sample$Optimized_C[,1]
@@ -499,7 +499,7 @@ N_quad = 1000
 
 N_samples = 100
 
-test_path_samples = run_rMAP_Trajectory(N_samples = 100, data = data, pos_sd = pos_sd, vel_sd = vel_sd, pos_selection_sd = pos_selection_sd,
+test_path_samples = run_rMAP_Path(N_samples = 100, data = data, pos_sd = pos_sd, vel_sd = vel_sd, pos_selection_sd = pos_selection_sd,
                                         trajectoryPost = trajectoryPost, border = c(-2,-2,2,2), N_quad = N_quad,
                                         baseVectorFields_Vec = baseVectorFields_Vec, prior_nodes = prior_nodes, full_nodes = full_nodes, print_every = 500, plot = F)
 hist(test_path_samples$NLL_Prior)
@@ -524,7 +524,6 @@ ggplot(PCA_Path_Samples$x, aes(x = PC1, y = PC2)) +
 ## K-Means on the top principle components
 
 library(cluster)
-library(factoextra)
 
 N_important_PC = as.numeric(which(PCA_Path_Summary$importance[3,] > 0.99)[1])
 
@@ -598,7 +597,7 @@ ggplot(data = PCA_center_plotting_df, aes(x = X1, y = X2, group = Center)) + geo
 
 center_c_start = cbind(PCA_center_c_x[1,], PCA_center_c_y[2,])
 
-find_mode_location = function(center_c_start, data, pos_sd, vel_sd, pos_selection_sd, trajectoryMode, border, N_quad, baseVectorFields_Vec, full_nodes, print_every, plot){
+find_one_mode_location_path = function(center_c_start, data, pos_sd, vel_sd, pos_selection_sd, trajectoryMode, border, N_quad, baseVectorFields_Vec, full_nodes, print_every, plot){
 
   center_c_start_x = center_c_start[,1]
   center_c_start_y = center_c_start[,2]
@@ -839,9 +838,5 @@ get_posterior_path_modes = function(center_c_start_mat_x, center_c_start_mat_y, 
 
 test_posterior_path_modes = get_posterior_path_modes(center_c_start_mat_x = center_c_start_mat_x, center_c_start_mat_y = center_c_start_mat_y,
                                                      data = data, pos_sd = pos_sd, vel_sd = vel_sd, pos_selection_sd = pos_selection_sd, trajectoryModes = trajectoryModes, border = border, N_quad = N_quad, baseVectorFields_Vec = baseVectorFields_Vec, full_nodes = full_nodes, print_every = print_every, plot = plot)
-
-
-
-
 
 

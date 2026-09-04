@@ -235,7 +235,7 @@ baseVectorFields_Vec = function(pos_t_mat){
 
 }
 
-sample_rMAP_trajectories = function(sim_data_list, pos_sd = 0.001, vel_sd = 0.1, M = 2, prior_k = 0.35, prior_l = 1, baseVectorFields_Vec, border, N_prop_steps = 10, traj_eval_grid, print_every = 50){
+find_one_rMAP_Trajectory = function(sim_data_list, pos_sd = 0.001, vel_sd = 0.1, M = 2, prior_k = 0.35, prior_l = 1, baseVectorFields_Vec, border, N_prop_steps = 10, traj_eval_grid, print_every = 50){
 
   N_v = as.numeric(lapply(sim_data_list, nrow))
   N = sum(N_v)
@@ -321,7 +321,7 @@ sample_rMAP_trajectories = function(sim_data_list, pos_sd = 0.001, vel_sd = 0.1,
 
     # Run the optimizer
   opt_result <- nloptr(
-    x0 = start_beta,               # Starting values
+    x0 = start_beta_vec,               # Starting values
     eval_f = rMAP_loss,            # Your C++ wrapper function
     opts = list(
       "algorithm" = "NLOPT_LN_NEWUOA",  # LN = Local, No-derivative
@@ -421,7 +421,6 @@ run_rMAP_Trajectory = function(N_samples, sim_data_list, pos_sd, vel_sd, M, prio
 
   post_like_pos = rep(0, N_samples)
   post_like_prior = rep(0, N_samples)
-  accept = rep(0, N_samples)
 
   for(i in 1:N_samples){
 
@@ -430,62 +429,15 @@ run_rMAP_Trajectory = function(N_samples, sim_data_list, pos_sd, vel_sd, M, prio
 
     cur_draw = sample_rMAP_trajectories(sim_data_list = sim_data_list, pos_sd = pos_sd, vel_sd = vel_sd, M = M, prior_k = prior_k, prior_l = prior_l, baseVectorFields_Vec = baseVectorFields_Vec, border = border, N_prop_steps = N_prop_steps, traj_eval_grid = traj_eval_grid, print_every = print_every)
 
-    # Metropolis
-    if(i > 1){
+    beta_1_post_mat[i,] = cur_draw[[1]][,1]
+    beta_2_post_mat[i,] = cur_draw[[1]][,2]
 
-      prev_NLL = post_like_pos[i-1] + post_like_prior[i-1]
-      cur_NLL = cur_draw[[2]] + cur_draw[[3]]
+    post_like_pos[i] = cur_draw[[2]]
+    post_like_prior[i] = cur_draw[[3]]
 
-      log_acc_prob = -1* (cur_NLL - prev_NLL)
+    post_traj_eval_1_list[[i]] = cur_draw[[4]][,1]
+    post_traj_eval_2_list[[i]] = cur_draw[[4]][,2]
 
-      u = runif(1)
-
-      if(log(u) < log_acc_prob){
-
-        beta_1_post_mat[i,] = cur_draw[[1]][,1]
-        beta_2_post_mat[i,] = cur_draw[[1]][,2]
-
-        post_like_pos[i] = cur_draw[[2]]
-        post_like_prior[i] = cur_draw[[3]]
-
-        post_traj_eval_1_list[[i]] = cur_draw[[4]][,1]
-        post_traj_eval_2_list[[i]] = cur_draw[[4]][,2]
-
-        accept[i] = 1
-
-        cat('\n*** Accepted ***\n\n')
-
-      } else{
-
-        beta_1_post_mat[i,] = beta_1_post_mat[i-1,]
-        beta_2_post_mat[i,] = beta_2_post_mat[i-1,]
-
-        post_like_pos[i] = post_like_pos[i-1]
-        post_like_prior[i] = post_like_prior[i-1]
-
-        post_traj_eval_1_list[[i]] = post_traj_eval_1_list[[i-1]]
-        post_traj_eval_2_list[[i]] = post_traj_eval_2_list[[i-1]]
-
-        cat('\n*** Rejected ***\n\n')
-
-      }
-
-    } else{
-
-      beta_1_post_mat[i,] = cur_draw[[1]][,1]
-      beta_2_post_mat[i,] = cur_draw[[1]][,2]
-
-      post_like_pos[i] = cur_draw[[2]]
-      post_like_prior[i] = cur_draw[[3]]
-
-      post_traj_eval_1_list[[i]] = cur_draw[[4]][,1]
-      post_traj_eval_2_list[[i]] = cur_draw[[4]][,2]
-
-      accept[i] = 1
-
-      cat('\n*** Initial Accepted ***\n\n')
-
-    }
 
   }
 
@@ -494,9 +446,419 @@ run_rMAP_Trajectory = function(N_samples, sim_data_list, pos_sd, vel_sd, M, prio
 
   list(Beta1Posterior = beta_1_post_mat, Beta2Posterior = beta_2_post_mat,
        Traj1Posterior = post_draws_traj_eval_1, Traj2Posterior = post_draws_traj_eval_2,
-       PosPosteriorNLL = post_like_pos, PriorPosteriorNLL = post_like_prior, MH_Acceptance = accept)
+       PosPosteriorNLL = post_like_pos, PriorPosteriorNLL = post_like_prior)
 
 }
+
+get_starting_mode_trajectories = function(traj_samples, PC_importance_threshold, max_clusters){
+
+  N_coefs = ncol(traj_samples$Beta1Posterior)
+
+  traj_coef_pca = prcomp(cbind(traj_samples$Beta1Posterior, traj_samples$Beta2Posterior), center = T, scale. = F)
+  pca_summary = summary(traj_coef_pca)
+
+  N_PCs = as.numeric(which(pca_summary$importance[3,] > 0.99)[1])
+
+  PCA_sub = traj_coef_pca$x[,1:(N_PCs)]
+  W_pca = traj_coef_pca$rotation[,1:(N_PCs)]
+  mu_pca = traj_coef_pca$center
+
+  k_means = run_k_means(PCA_sub = PCA_sub, max_k = max_clusters)
+
+  K_means_centers = k_means$K_means$centers
+  K_means_K = k_means$K
+
+  PCA_center_beta = K_means_centers %*% t(W_pca) + matrix(rep(mu_pca, K_means_K), nrow = K_means_K, byrow = T)
+
+  PCA_center_beta1 = PCA_center_beta[,1:N_coefs]
+  PCA_center_beta2 = PCA_center_beta[,1:N_coefs + N_coefs]
+
+  list(Center_Beta1 = PCA_center_beta1, Center_Beta2 = PCA_center_beta2)
+
+}
+
+find_one_mode_location_traj = function(center_beta_start_1, center_beta_start_2, sim_data_list, pos_sd = 0.001, vel_sd = 0.1, M = 2, prior_k = 0.35, prior_l = 1, baseVectorFields_Vec, border, N_prop_steps = 10, traj_eval_grid, print_every = 50){
+
+  center_beta_start_full = c(center_beta_start_1, center_beta_start_2)
+
+  N_v = as.numeric(lapply(sim_data_list, nrow))
+  N = sum(N_v)
+  D = length(N_v)
+
+  data_starts = do.call(rbind, lapply(1:D, FUN = function(i, l){l[[i]][1:(N_v[i]-1),]}, l = sim_data_list))
+  data_ends = do.call(rbind, lapply(1:D, FUN = function(i, l){l[[i]][-1,]}, l = sim_data_list))
+
+  N_advects = nrow(data_starts)
+
+  rand_vel_1 = matrix(rep(0, N_advects*N_prop_steps), nrow = N_prop_steps, ncol = N_advects)
+  rand_vel_2 = matrix(rep(0, N_advects*N_prop_steps), nrow = N_prop_steps, ncol = N_advects)
+
+  omega = (1:M-1)*pi
+  spec_den = sqrt(2*pi)*prior_l*exp(-0.5*prior_l^2*omega^2)
+
+  prior_beta_sigma = diag(c(prior_k^2 * diag(spec_den) %*% matrix(rep(1,4), nrow = 2) %*% diag(spec_den)))
+
+  start_beta = c(rep(0,2*M^2))
+
+  t_steps_vec <- as.numeric(data_ends$t - data_starts$t) / N_prop_steps
+
+  starts_mat <- as.matrix(data_starts)
+  ends_mat <- as.matrix(data_ends)
+  rand_vel_1_mat <- as.matrix(rand_vel_1)
+  rand_vel_2_mat <- as.matrix(rand_vel_2)
+  border_vec <- as.numeric(border)
+  start_beta_vec <- as.numeric(start_beta)
+
+  # Good catch on the prior! Pre-calculate the precision matrix (inverse of covariance) here
+  prior_precision_mat <- ginv(as.matrix(prior_beta_sigma))
+
+  eval_counter <- 0
+
+  cat(sprintf("\n\n--- Starting Optimization for New Sample ---\n"))
+
+  # Optimize for the best w that matched the mixing fields
+  rMAP_loss <- function(beta) {
+
+    eval_counter <<- eval_counter + 1
+
+    # The only thing happening here is the jump to C++
+    current_loss <- rMAP_loss_cpp(
+      beta = beta,
+      M_sq = M^2,
+      aug_data_starts = starts_mat,
+      aug_data_ends = ends_mat,
+      t_steps = t_steps_vec,
+      rand_vel_1 = rand_vel_1_mat,
+      rand_vel_2 = rand_vel_2_mat,
+      border = border_vec,
+      pos_sd = pos_sd,
+      prior_beta_sigma = prior_precision_mat,
+      start_beta = start_beta_vec
+    )
+
+    if (eval_counter %% print_every == 0) {
+      beta_str <- paste(sprintf("%.3f", beta), collapse = ", ")
+
+      # Notice the \n at the VERY BEGINNING here too, to clear the progress bar
+      cat(sprintf("\nIter: %4d | Loss: %10.4f | Beta: [%s]",
+                  eval_counter, current_loss, beta_str))
+    }
+
+    return(current_loss)
+
+  }
+
+  # Run the optimizer
+  opt_result <- nloptr(
+    x0 = center_beta_start_full,               # Starting values
+    eval_f = rMAP_loss,            # Your C++ wrapper function
+    opts = list(
+      "algorithm" = "NLOPT_LN_NEWUOA",  # LN = Local, No-derivative
+      "ftol_rel" = 1e-6,                # Stop when parameters stop changing by this fraction
+      "maxeval" = 2000,                 # Maximum number of evaluations
+      "print_level" = 0                 # 0 = silent, 1 = show progress, 2 = verbose
+    )
+  )
+
+  final_beta_str <- paste(sprintf("%.3f", opt_result$solution), collapse = ", ")
+
+  # Using "FINAL" so it stands out from the regular 100-step updates
+  cat(sprintf("\nFINAL: Iter: %4d | Loss: %10.4f | Beta: [%s]\n",
+              opt_result$iterations, opt_result$objective, final_beta_str))
+
+  post_beta_1 = opt_result$solution[1:(M^2)]
+  post_beta_2 = opt_result$solution[1:(M^2)+(M^2)]
+  post_beta_mat = cbind(post_beta_1, post_beta_2)
+
+  post_traj_grid = exp(evaluate2DCosine_fast(beta_mat = post_beta_mat, pos_mat = traj_eval_grid, border = border))
+
+  # --- Eval Optimal Traj (Updated to RK4) ---
+
+  M_sq <- M^2
+  t_steps <- (data_ends$t - data_starts$t) / N_prop_steps
+  sqrt_t_steps <- sqrt(t_steps)
+  curPos_mat <- data_starts
+
+  for(j in 1:N_prop_steps) {
+
+    k1 <- TrajWeightedBaseVectorFields_2D_Cosine(
+      pos_t_mat = curPos_mat, beta_mat = post_beta_mat, baseVectorFields_Vec = baseVectorFields_Vec, border = border
+    )
+
+    pos_mat_k2 <- curPos_mat
+    pos_mat_k2[, 1] <- pos_mat_k2[, 1] + t_steps / 2
+    pos_mat_k2[, 2] <- pos_mat_k2[, 2] + k1[, 1] * (t_steps / 2)
+    pos_mat_k2[, 3] <- pos_mat_k2[, 3] + k1[, 2] * (t_steps / 2)
+
+    k2 <- TrajWeightedBaseVectorFields_2D_Cosine(
+      pos_t_mat = pos_mat_k2, beta_mat = post_beta_mat, baseVectorFields_Vec = baseVectorFields_Vec, border = border
+    )
+
+    pos_mat_k3 <- curPos_mat
+    pos_mat_k3[, 1] <- pos_mat_k3[, 1] + t_steps / 2
+    pos_mat_k3[, 2] <- pos_mat_k3[, 2] + k2[, 1] * (t_steps / 2)
+    pos_mat_k3[, 3] <- pos_mat_k3[, 3] + k2[, 2] * (t_steps / 2)
+
+    k3 <- TrajWeightedBaseVectorFields_2D_Cosine(
+      pos_t_mat = pos_mat_k3, beta_mat = post_beta_mat, baseVectorFields_Vec = baseVectorFields_Vec, border = border
+    )
+
+    pos_mat_k4 <- curPos_mat
+    pos_mat_k4[, 1] <- pos_mat_k4[, 1] + t_steps
+    pos_mat_k4[, 2] <- pos_mat_k4[, 2] + k3[, 1] * t_steps
+    pos_mat_k4[, 3] <- pos_mat_k4[, 3] + k3[, 2] * t_steps
+
+    k4 <- TrajWeightedBaseVectorFields_2D_Cosine(
+      pos_t_mat = pos_mat_k4, beta_mat = post_beta_mat, baseVectorFields_Vec = baseVectorFields_Vec, border = border
+    )
+
+    rk4_drift_1 <- (k1[, 1] + 2 * k2[, 1] + 2 * k3[, 1] + k4[, 1]) / 6
+    rk4_drift_2 <- (k1[, 2] + 2 * k2[, 2] + 2 * k3[, 2] + k4[, 2]) / 6
+
+    cur_diffusion_vec_1 <- rand_vel_1[j,]
+    cur_diffusion_vec_2 <- rand_vel_2[j,]
+
+    curPos_mat[, 1] <- curPos_mat[, 1] + t_steps
+    curPos_mat[, 2] <- curPos_mat[, 2] + rk4_drift_1 * t_steps + cur_diffusion_vec_1 * sqrt_t_steps
+    curPos_mat[, 3] <- curPos_mat[, 3] + rk4_drift_2 * t_steps + cur_diffusion_vec_2 * sqrt_t_steps
+  }
+
+  diff_1 <- curPos_mat[, 2] - data_ends$X1
+  diff_2 <- curPos_mat[, 3] - data_ends$X2
+
+  post_likelihood_loss_pos <- sum(diff_1^2 + diff_2^2) / (2 * pos_sd^2)
+
+  d_beta1 <- post_beta_1
+  d_beta2 <- post_beta_2
+
+  post_prior_loss <- as.numeric(crossprod(d_beta1, prior_precision_mat %*% d_beta1) +
+    crossprod(d_beta2, prior_precision_mat %*% d_beta2))
+
+  cat("\n")
+
+  list(OptimizedBeta = post_beta_mat, PostNLL_Pos = post_likelihood_loss_pos, PostNLL_Prior = post_prior_loss, OptimizedTrajVals = post_traj_grid)
+
+}
+
+get_posterior_traj_modes = function(center_beta_mat_start_1, center_beta_mat_start_2, sim_data_list, pos_sd = 0.001, vel_sd = 0.1, M = 2, prior_k = 0.35, prior_l = 1, baseVectorFields_Vec, border, N_prop_steps = 10, traj_eval_grid, print_every = 50, unique_tol = 0.001){
+
+  # Define matrices for mode coefficients, mode path evaluations, NLL evaluations
+  N_traj_modes = nrow(center_beta_mat_start_1)
+  N_beta = ncol(center_beta_mat_start_1)
+  N_evals = nrow(traj_eval_grid)
+
+  traj_mode_beta1 = matrix(nrow = N_traj_modes, ncol = N_beta)
+  traj_mode_beta2 = matrix(nrow = N_traj_modes, ncol = N_beta)
+
+  traj_mode_eval1 = matrix(nrow = N_traj_modes, ncol = N_evals)
+  traj_mode_eval2 = matrix(nrow = N_traj_modes, ncol = N_evals)
+
+  traj_mode_NLL_pos = rep(0, N_traj_modes)
+  traj_mode_NLL_prior = rep(0, N_traj_modes)
+
+  # Tracker for the number of disjoint modes discovered
+  unique_count = 0
+
+  # Loops through all mode starting locations
+  for(i in 1:N_traj_modes){
+
+    cur_traj_start_1 = center_beta_mat_start_1[i,]
+    cur_traj_start_2 = center_beta_mat_start_2[i,]
+
+    cur_trajMode = find_one_mode_location_traj(
+      center_beta_start_1 = cur_traj_start_1,
+      center_beta_start_2 = cur_traj_start_2,
+      sim_data_list = sim_data_list, pos_sd = pos_sd, vel_sd = vel_sd,
+      M = M, prior_k = prior_k, prior_l = prior_l,
+      baseVectorFields_Vec = baseVectorFields_Vec, border = border,
+      N_prop_steps = N_prop_steps, traj_eval_grid = traj_eval_grid,
+      print_every = print_every
+    )
+
+    # Extract the optimized joint parameter vector
+    opt_beta1 = cur_trajMode$OptimizedBeta[,1]
+    opt_beta2 = cur_trajMode$OptimizedBeta[,2]
+    opt_joint = c(opt_beta1, opt_beta2)
+
+    # -------------------------------------------------------------
+    # Deduplication Filter
+    # -------------------------------------------------------------
+    is_duplicate = FALSE
+
+    if(unique_count > 0) {
+      for(j in 1:unique_count) {
+        # Reconstruct the joint vector of previously accepted unique modes
+        saved_joint = c(traj_mode_beta1[j,], traj_mode_beta2[j,])
+
+        # Calculate Euclidean distance in the joint parameter space
+        dist = sqrt(sum((opt_joint - saved_joint)^2))
+
+        if (dist < unique_tol) {
+          is_duplicate = TRUE
+          break # Immediately halt check if it fell into a known valley
+        }
+      }
+    }
+
+    # Store only if it represents a novel physical route
+    if(!is_duplicate) {
+      unique_count = unique_count + 1
+
+      traj_mode_beta1[unique_count,] = opt_beta1
+      traj_mode_beta2[unique_count,] = opt_beta2
+
+      traj_mode_eval1[unique_count,] = cur_trajMode$OptimizedTrajVals[,1]
+      traj_mode_eval2[unique_count,] = cur_trajMode$OptimizedTrajVals[,2]
+
+      traj_mode_NLL_pos[unique_count] = cur_trajMode$PostNLL_Pos
+      traj_mode_NLL_prior[unique_count] = cur_trajMode$PostNLL_Prior
+    }
+  }
+
+  # Trim pre-allocated structures down to only the unique modes found
+  # drop = FALSE ensures matrices don't collapse to vectors if unique_count == 1
+  if (unique_count > 0) {
+    traj_mode_beta1 = traj_mode_beta1[1:unique_count, , drop = FALSE]
+    traj_mode_beta2 = traj_mode_beta2[1:unique_count, , drop = FALSE]
+    traj_mode_eval1 = traj_mode_eval1[1:unique_count, , drop = FALSE]
+    traj_mode_eval2 = traj_mode_eval2[1:unique_count, , drop = FALSE]
+    traj_mode_NLL_pos = traj_mode_NLL_pos[1:unique_count]
+    traj_mode_NLL_prior = traj_mode_NLL_prior[1:unique_count]
+  }
+
+  return(list(
+    Beta1 = traj_mode_beta1,
+    Beta2 = traj_mode_beta2,
+    TrajVals1 = traj_mode_eval1,
+    TrajVals2 = traj_mode_eval2,
+    NLL_Pos = traj_mode_NLL_pos,
+    NLL_Prior = traj_mode_NLL_prior,
+    Total_Unique_Modes = unique_count
+  ))
+}
+
+test_posterior_traj_modes = get_posterior_traj_modes(center_beta_mat_start_1 = center_beta_mat_start_1, center_beta_mat_start_2 = center_beta_mat_start_2, sim_data_list = sim_data_list, pos_sd = 0.001, vel_sd = 0.1, M = 2, prior_k = 0.35, prior_l = 1, baseVectorFields_Vec = baseVectorFields_Vec, border = c(-2,-2,2,2), N_prop_steps = 10, traj_eval_grid = traj_eval_grid, print_every = 50, unique_tol = 0.001)
+
+test_posterior_traj_modes$Total_Unique_Modes
+
+postior_traj_mode_NLL = test_posterior_traj_modes$NLL_Pos + test_posterior_traj_modes$NLL_Prior
+
+posterior_traj_mode_1 = test_posterior_traj_modes$Beta1[1,]
+posterior_traj_mode_2 = test_posterior_traj_modes$Beta2[1,]
+
+get_one_traj_hessian = function(posterior_traj_mode_1, posterior_traj_mode_2, sim_data_list, pos_sd = 0.001, vel_sd = 0.1, M = 2, prior_k = 0.35, prior_l = 1, baseVectorFields_Vec, border, N_prop_steps = 10, traj_eval_grid, print_every = 50){
+
+  posterior_traj_mode_full = c(posterior_traj_mode_1, posterior_traj_mode_2)
+
+  N_v = as.numeric(lapply(sim_data_list, nrow))
+  N = sum(N_v)
+  D = length(N_v)
+
+  data_starts = do.call(rbind, lapply(1:D, FUN = function(i, l){l[[i]][1:(N_v[i]-1),]}, l = sim_data_list))
+  data_ends = do.call(rbind, lapply(1:D, FUN = function(i, l){l[[i]][-1,]}, l = sim_data_list))
+
+  N_advects = nrow(data_starts)
+
+  rand_vel_1 = matrix(rep(0, N_advects*N_prop_steps), nrow = N_prop_steps, ncol = N_advects)
+  rand_vel_2 = matrix(rep(0, N_advects*N_prop_steps), nrow = N_prop_steps, ncol = N_advects)
+
+  omega = (1:M-1)*pi
+  spec_den = sqrt(2*pi)*prior_l*exp(-0.5*prior_l^2*omega^2)
+
+  prior_beta_sigma = diag(c(prior_k^2 * diag(spec_den) %*% matrix(rep(1,4), nrow = 2) %*% diag(spec_den)))
+
+  start_beta = c(rep(0,2*M^2))
+
+  t_steps_vec <- as.numeric(data_ends$t - data_starts$t) / N_prop_steps
+
+  starts_mat <- as.matrix(data_starts)
+  ends_mat <- as.matrix(data_ends)
+  rand_vel_1_mat <- as.matrix(rand_vel_1)
+  rand_vel_2_mat <- as.matrix(rand_vel_2)
+  border_vec <- as.numeric(border)
+  start_beta_vec <- as.numeric(posterior_traj_mode_full)
+
+  # Good catch on the prior! Pre-calculate the precision matrix (inverse of covariance) here
+  prior_precision_mat <- ginv(as.matrix(prior_beta_sigma))
+
+  eval_counter <- 0
+
+  cat(sprintf("\n\n--- Starting Optimization for New Sample ---\n"))
+
+  # Optimize for the best w that matched the mixing fields
+  rMAP_loss <- function(beta) {
+
+    eval_counter <<- eval_counter + 1
+
+    # The only thing happening here is the jump to C++
+    current_loss <- rMAP_loss_cpp(
+      beta = beta,
+      M_sq = M^2,
+      aug_data_starts = starts_mat,
+      aug_data_ends = ends_mat,
+      t_steps = t_steps_vec,
+      rand_vel_1 = rand_vel_1_mat,
+      rand_vel_2 = rand_vel_2_mat,
+      border = border_vec,
+      pos_sd = pos_sd,
+      prior_beta_sigma = prior_precision_mat,
+      start_beta = start_beta_vec
+    )
+
+    if (eval_counter %% print_every == 0) {
+      beta_str <- paste(sprintf("%.3f", beta), collapse = ", ")
+
+      # Notice the \n at the VERY BEGINNING here too, to clear the progress bar
+      cat(sprintf("\nIter: %4d | Loss: %10.4f | Beta: [%s]",
+                  eval_counter, current_loss, beta_str))
+    }
+
+    return(current_loss)
+
+  }
+
+  H_matrix = numDeriv::hessian(func = rMAP_loss, x = start_beta_vec)
+
+  H_matrix
+  NLL
+
+}
+
+posterior_traj_mode_mat_1 = test_posterior_traj_modes$Beta1
+posterior_traj_mode_mat_2 = test_posterior_traj_modes$Beta2
+
+get_posterior_traj_hessians = function(posterior_traj_mode_mat_1, posterior_traj_mode_mat_2, sim_data_list, pos_sd = 0.001, vel_sd = 0.1, M = 2, prior_k = 0.35, prior_l = 1, baseVectorFields_Vec, border, N_prop_steps = 10, traj_eval_grid, print_every = 50){
+
+  #Define matrices for mode coefficients, mode path evaluations, NLL evaluations
+
+  N_traj_modes = nrow(posterior_traj_mode_mat_1)
+  N_beta = ncol(posterior_traj_mode_mat_1)
+  N_evals = nrow(traj_eval_grid)
+
+  traj_hessians = list()
+
+  #Loops through all mode starting locations
+
+  for(i in 1:N_traj_modes){
+
+    cur_traj_mode_1 = posterior_traj_mode_mat_1[i,]
+    cur_traj_mode_2 = posterior_traj_mode_mat_2[i,]
+
+    cur_trajMode_H = get_one_traj_hessian(posterior_traj_mode_1 = cur_traj_mode_1, posterior_traj_mode_2 = cur_traj_mode_2, sim_data_list = sim_data_list, pos_sd = pos_sd, vel_sd = vel_sd, M = M, prior_k = prior_k, prior_l = prior_l, baseVectorFields_Vec = baseVectorFields_Vec, border = border, N_prop_steps = N_prop_steps, traj_eval_grid = traj_eval_grid, print_every = print_every)
+
+    traj_hessians[[i]] = cur_trajMode_H
+
+  }
+
+  return(list(Beta1 = traj_mode_beta1, Beta2 = traj_mode_beta2, TrajVals1 = traj_mode_eval1, TrajVals2 = traj_mode_eval2, NLL_Pos = traj_mode_NLL_pos, NLL_Prior = traj_mode_NLL_prior))
+
+
+}
+
+c(test_posterior_traj_modes$Beta1[4,], test_posterior_traj_modes$Beta2[4,])
+
+H_matrix = numDeriv::hessian(func = rMAP_loss, x = c(test_posterior_traj_modes$Beta1[4,], test_posterior_traj_modes$Beta2[4,]))
+
 
 ### Tests
 
