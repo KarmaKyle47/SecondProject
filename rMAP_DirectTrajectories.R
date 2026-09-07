@@ -4,6 +4,7 @@ library(MASS)
 library(ggplot2)
 library(minqa)
 library(nloptr)
+library(mvtnorm)
 
 
 evaluateHSGP = function(z, k, l, M, border, curPos){
@@ -851,7 +852,113 @@ get_posterior_traj_hessians = function(posterior_traj_mode_mat_1, posterior_traj
 
 }
 
-run_RWMH_one_traj_mode = function()
+N_draws = 100
+traj_mode = c(posterior_traj_mode_mat_1[1,], posterior_traj_mode_mat_2[1,])
+traj_hessian = traj_hessians[[1]]
+temp = 1
+
+run_RWMH_one_traj_mode = function(N_draws, traj_mode, traj_hessian, temp,  sim_data_list, pos_sd = 0.001, vel_sd = 0.1, M = 2, prior_k = 0.35, prior_l = 1, baseVectorFields_Vec, border, N_prop_steps = 10){
+
+  N_v = as.numeric(lapply(sim_data_list, nrow))
+  N = sum(N_v)
+  D = length(N_v)
+
+  data_starts = do.call(rbind, lapply(1:D, FUN = function(i, l){l[[i]][1:(N_v[i]-1),]}, l = sim_data_list))
+  data_ends = do.call(rbind, lapply(1:D, FUN = function(i, l){l[[i]][-1,]}, l = sim_data_list))
+
+  N_advects = nrow(data_starts)
+
+  omega = (1:M-1)*pi
+  spec_den = sqrt(2*pi)*prior_l*exp(-0.5*prior_l^2*omega^2)
+
+  prior_beta_sigma = diag(c(prior_k^2 * diag(spec_den) %*% matrix(rep(1,M^2), nrow = M) %*% diag(spec_den)))
+  prior_precision_mat <- ginv(as.matrix(prior_beta_sigma))
+
+  t_steps_vec <- as.numeric(data_ends$t - data_starts$t) / N_prop_steps
+
+  starts_mat <- as.matrix(data_starts)
+  ends_mat <- as.matrix(data_ends)
+  border_vec <- as.numeric(border)
+
+  #Find gaussian covariance estimate
+
+  traj_estSigma = ginv(traj_hessian)
+
+  #Calculate covariance of the proposal distributions
+  #    The 2.382^2/d should yield optimal acceptance rate
+  #    Adding the temperature for added flexibility
+
+  d = length(traj_mode)
+
+  traj_Proposal_Cov = traj_estSigma * ((2.382)^2/d) * temp
+
+  traj_coefs = matrix(nrow = N_draws, ncol = d)
+  LL = rep(0, N_draws)
+  accept = rep(0, N_draws)
+
+  prev_model_LL = -Inf
+  prev_traj = traj_mode
+
+  prior_beta = rep(0, d)
+
+  svMisc::progress(0, N_draws)
+
+  for(i in 1:N_draws){
+
+    cur_traj = mvrnorm(n=1, mu = prev_traj, Sigma = traj_Proposal_Cov)
+
+    cur_vel_err_1 = matrix(rnorm(N_advects*N_prop_steps, 0, vel_sd), nrow = N_prop_steps, ncol = N_advects)
+    cur_vel_err_2 = matrix(rnorm(N_advects*N_prop_steps, 0, vel_sd), nrow = N_prop_steps, ncol = N_advects)
+
+    cur_model_LL = -1*rMAP_loss_cpp(
+      beta = cur_traj,
+      M_sq = M^2,
+      aug_data_starts = starts_mat,
+      aug_data_ends = ends_mat,
+      t_steps = t_steps_vec,
+      rand_vel_1 = cur_vel_err_1,
+      rand_vel_2 = cur_vel_err_2,
+      border = border_vec,
+      pos_sd = pos_sd,
+      prior_beta_sigma = prior_precision_mat,
+      start_beta = prior_beta
+    )
+
+    A = (cur_model_LL) - (prev_model_LL)
+
+    log_u = log(runif(1))
+
+    if(log_u <= A){
+
+      prev_traj = cur_traj
+      prev_model_LL = cur_model_LL
+
+      traj_coefs[i,] = cur_traj
+      LL[i] = cur_model_LL
+      accept[i] = 1
+
+    } else{
+
+      traj_coefs[i,] = prev_traj
+      LL[i] = prev_model_LL
+
+    }
+
+    svMisc::progress(i, N_draws)
+
+  }
+
+  return(list(Traj_Draws = traj_coefs, LogLikelihoods = LL, Acceptance = accept))
+
+}
+
+RWMH_test = run_RWMH_one_traj_mode(N_draws = 100, traj_mode = traj_mode, traj_hessian = traj_hessian, temp = 1, sim_data_list = sim_data_list, pos_sd = 0.001, vel_sd = 0.1, M = 2, prior_k = 0.35, prior_l = 1, baseVectorFields_Vec = baseVectorFields_Vec, border = border, N_prop_steps = 10)
+
+plot(RWMH_test$LogLikelihoods)
+mean(RWMH_test$Acceptance)
+
+
+RWMH_test$Traj_Draws
 
 ### Tests
 
