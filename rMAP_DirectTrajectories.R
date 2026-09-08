@@ -262,10 +262,15 @@ find_one_rMAP_Trajectory = function(sim_data_list, pos_sd = 0.001, vel_sd = 0.1,
   omega = (1:M-1)*pi
   spec_den = sqrt(2*pi)*prior_l*exp(-0.5*prior_l^2*omega^2)
 
-  prior_beta_sigma = diag(c(prior_k^2 * diag(spec_den) %*% matrix(rep(1,4), nrow = 2) %*% diag(spec_den)))
+  if(M == 1){
 
-  upper_beta = rep(sqrt(diag(prior_beta_sigma))*3,2)
-  lower_beta = -1*upper_beta
+    prior_beta_sigma = prior_k^2 * spec_den^2
+
+  } else{
+
+    prior_beta_sigma = diag(c(prior_k^2 * diag((spec_den)) %*% matrix(rep(1,M^2), nrow = M) %*% diag((spec_den))))
+
+  }
 
   start_beta_1 = mvrnorm(1, rep(0, M^2), Sigma = prior_beta_sigma)
   start_beta_2 = mvrnorm(1, rep(0, M^2), Sigma = prior_beta_sigma)
@@ -412,6 +417,143 @@ find_one_rMAP_Trajectory = function(sim_data_list, pos_sd = 0.001, vel_sd = 0.1,
 
 }
 
+find_one_rMAP_Trajectory_Multithread = function(sim_data_list, pos_sd = 0.001, vel_sd = 0.1, M = 2, prior_k = 0.35, prior_l = 1, baseVectorFields_Vec, border, N_prop_steps = 10, traj_eval_grid, print_every = 50, n_threads = 1){
+
+  N_v = as.numeric(lapply(sim_data_list, nrow))
+  N = sum(N_v)
+  D = length(N_v)
+
+  # Add positional error
+  t_err = lapply(N_v, FUN = rep, x = 0)
+  x_pos_err = lapply(X = N_v, FUN = rnorm, mean = 0, sd = pos_sd)
+  y_pos_err = lapply(X = N_v, FUN = rnorm, mean = 0, sd = pos_sd)
+
+  err_list = lapply(1:D, FUN = function(i, l1, l2, l3){cbind(l1[[i]],l2[[i]],l3[[i]])}, l1 = t_err, l2 = x_pos_err, l3 = y_pos_err)
+
+  aug_data_list = lapply(1:D, FUN = function(i, l1, l2){l1[[i]] + l2[[i]]}, l1 = sim_data_list, l2 = err_list)
+
+  aug_data_starts = do.call(rbind, lapply(1:D, FUN = function(i, l){l[[i]][1:(N_v[i]-1),]}, l = aug_data_list))
+  aug_data_ends = do.call(rbind, lapply(1:D, FUN = function(i, l){l[[i]][-1,]}, l = aug_data_list))
+
+  N_advects = nrow(aug_data_starts)
+
+  rand_vel_1 = matrix(rnorm(N_advects*N_prop_steps, 0, vel_sd), nrow = N_prop_steps, ncol = N_advects)
+  rand_vel_2 = matrix(rnorm(N_advects*N_prop_steps, 0, vel_sd), nrow = N_prop_steps, ncol = N_advects)
+
+  omega = (1:M-1)*pi
+  spec_den = sqrt(2*pi)*prior_l*exp(-0.5*prior_l^2*omega^2)
+
+  if(M == 1){
+
+    prior_beta_sigma = prior_k^2 * spec_den^2
+
+  } else{
+
+    prior_beta_sigma = diag(c(prior_k^2 * diag((spec_den)) %*% matrix(rep(1,M^2), nrow = M) %*% diag((spec_den))))
+
+  }
+
+  start_beta_1 = mvrnorm(1, rep(0, M^2), Sigma = prior_beta_sigma)
+  start_beta_2 = mvrnorm(1, rep(0, M^2), Sigma = prior_beta_sigma)
+
+  start_beta = c(start_beta_1, start_beta_2)
+
+  t_steps_vec <- as.numeric(aug_data_ends$t - aug_data_starts$t) / N_prop_steps
+
+  aug_starts_mat <- as.matrix(aug_data_starts)
+  aug_ends_mat <- as.matrix(aug_data_ends)
+  rand_vel_1_mat <- as.matrix(rand_vel_1)
+  rand_vel_2_mat <- as.matrix(rand_vel_2)
+  border_vec <- as.numeric(border)
+  start_beta_vec <- as.numeric(start_beta)
+
+  # Good catch on the prior! Pre-calculate the precision matrix (inverse of covariance) here
+  prior_precision_mat <- ginv(as.matrix(prior_beta_sigma))
+
+  eval_counter <- 0
+
+  cat(sprintf("\n\n--- Starting Optimization for New Sample ---\n"))
+
+  # Optimize for the best w that matched the mixing fields
+  rMAP_loss <- function(beta) {
+
+    eval_counter <<- eval_counter + 1
+
+    # The only thing happening here is the jump to C++
+    current_loss <- rMAP_loss_cpp_multi(
+      beta = beta,
+      M_sq = M^2,
+      aug_data_starts = aug_starts_mat,
+      aug_data_ends = aug_ends_mat,
+      t_steps = t_steps_vec,
+      rand_vel_1 = rand_vel_1_mat,
+      rand_vel_2 = rand_vel_2_mat,
+      border = border_vec,
+      pos_sd = pos_sd,
+      prior_beta_sigma = prior_precision_mat,
+      start_beta = start_beta_vec,
+      n_threads = n_threads
+    )
+
+    if (eval_counter %% print_every == 0) {
+      beta_str <- paste(sprintf("%.3f", beta), collapse = ", ")
+
+      # Notice the \n at the VERY BEGINNING here too, to clear the progress bar
+      cat(sprintf("\nIter: %4d | Loss: %10.4f | Beta: [%s]",
+                  eval_counter, current_loss, beta_str))
+    }
+
+    return(current_loss)
+
+  }
+
+  # Run the optimizer
+  opt_result <- nloptr(
+    x0 = start_beta_vec,               # Starting values
+    eval_f = rMAP_loss,            # Your C++ wrapper function
+    opts = list(
+      "algorithm" = "NLOPT_LN_NEWUOA",  # LN = Local, No-derivative
+      "ftol_rel" = 1e-6,                # Stop when parameters stop changing by this fraction
+      "maxeval" = 5000,                 # Maximum number of evaluations
+      "print_level" = 0                 # 0 = silent, 1 = show progress, 2 = verbose
+    )
+  )
+
+  final_beta_str <- paste(sprintf("%.3f", opt_result$solution), collapse = ", ")
+
+  # Using "FINAL" so it stands out from the regular 100-step updates
+  cat(sprintf("\nFINAL: Iter: %4d | Loss: %10.4f | Beta: [%s]\n",
+              opt_result$iterations, opt_result$objective, final_beta_str))
+
+  post_beta_1 = opt_result$solution[1:(M^2)]
+  post_beta_2 = opt_result$solution[1:(M^2)+(M^2)]
+  post_beta_mat = cbind(post_beta_1, post_beta_2)
+
+  post_traj_grid = exp(evaluate2DCosine_fast(beta_mat = post_beta_mat, pos_mat = traj_eval_grid, border = border))
+
+  # --- Eval Optimal Traj (Updated to RK4) ---
+
+  post_loss = rMAP_loss_cpp_multi(
+    beta = opt_result$solution,
+    M_sq = M^2,
+    aug_data_starts = aug_starts_mat,
+    aug_data_ends = aug_ends_mat,
+    t_steps = t_steps_vec,
+    rand_vel_1 = rand_vel_1_mat,
+    rand_vel_2 = rand_vel_2_mat,
+    border = border_vec,
+    pos_sd = pos_sd,
+    prior_beta_sigma = prior_precision_mat,
+    start_beta = start_beta_vec,
+    n_threads = n_threads
+  )
+
+  cat("\n")
+
+  list(post_beta_mat, post_loss, post_traj_grid)
+
+}
+
 run_rMAP_Trajectory = function(N_samples, sim_data_list, pos_sd, vel_sd, M, prior_k, prior_l, baseVectorFields_Vec, border, N_prop_steps, traj_eval_grid, print_every = 50){
 
   beta_1_post_mat = matrix(nrow = N_samples, ncol = M^2)
@@ -428,7 +570,7 @@ run_rMAP_Trajectory = function(N_samples, sim_data_list, pos_sd, vel_sd, M, prio
     cat(sprintf("=========== PROGRESS: Sample %d of %d ===========\n", i, N_samples))
     flush.console()
 
-    cur_draw = sample_rMAP_trajectories(sim_data_list = sim_data_list, pos_sd = pos_sd, vel_sd = vel_sd, M = M, prior_k = prior_k, prior_l = prior_l, baseVectorFields_Vec = baseVectorFields_Vec, border = border, N_prop_steps = N_prop_steps, traj_eval_grid = traj_eval_grid, print_every = print_every)
+    cur_draw = find_one_rMAP_Trajectory(sim_data_list = sim_data_list, pos_sd = pos_sd, vel_sd = vel_sd, M = M, prior_k = prior_k, prior_l = prior_l, baseVectorFields_Vec = baseVectorFields_Vec, border = border, N_prop_steps = N_prop_steps, traj_eval_grid = traj_eval_grid, print_every = print_every)
 
     beta_1_post_mat[i,] = cur_draw[[1]][,1]
     beta_2_post_mat[i,] = cur_draw[[1]][,2]
@@ -450,6 +592,46 @@ run_rMAP_Trajectory = function(N_samples, sim_data_list, pos_sd, vel_sd, M, prio
        PosPosteriorNLL = post_like_pos, PriorPosteriorNLL = post_like_prior)
 
 }
+
+run_rMAP_Trajectory_Multithread = function(N_samples, sim_data_list, pos_sd, vel_sd, M, prior_k, prior_l, baseVectorFields_Vec, border, N_prop_steps, traj_eval_grid, print_every = 50, n_threads = 1){
+
+  beta_1_post_mat = matrix(nrow = N_samples, ncol = M^2)
+  beta_2_post_mat = matrix(nrow = N_samples, ncol = M^2)
+
+  post_traj_eval_1_list = list()
+  post_traj_eval_2_list = list()
+
+  post_like = rep(0, N_samples)
+
+  for(i in 1:N_samples){
+
+    cat(sprintf("=========== PROGRESS: Sample %d of %d ===========\n", i, N_samples))
+    flush.console()
+
+    cur_draw = find_one_rMAP_Trajectory_Multithread(sim_data_list = sim_data_list, pos_sd = pos_sd, vel_sd = vel_sd, M = M, prior_k = prior_k, prior_l = prior_l, baseVectorFields_Vec = baseVectorFields_Vec, border = border, N_prop_steps = N_prop_steps, traj_eval_grid = traj_eval_grid, print_every = print_every, n_threads = n_threads)
+
+    beta_1_post_mat[i,] = cur_draw[[1]][,1]
+    beta_2_post_mat[i,] = cur_draw[[1]][,2]
+
+    post_like[i] = cur_draw[[2]]
+
+    post_traj_eval_1_list[[i]] = cur_draw[[3]][,1]
+    post_traj_eval_2_list[[i]] = cur_draw[[3]][,2]
+
+
+  }
+
+  post_draws_traj_eval_1 = do.call(cbind, post_traj_eval_1_list)
+  post_draws_traj_eval_2 = do.call(cbind, post_traj_eval_2_list)
+
+  list(Beta1Posterior = beta_1_post_mat, Beta2Posterior = beta_2_post_mat,
+       Traj1Posterior = post_draws_traj_eval_1, Traj2Posterior = post_draws_traj_eval_2,
+       PosteriorNLL = post_like)
+
+}
+
+
+## Attempting at Metropolis-Hastings
 
 get_starting_mode_trajectories = function(traj_samples, PC_importance_threshold, max_clusters){
 
@@ -966,7 +1148,11 @@ M=2
 true_l = 1
 true_k = 0.35
 
-trueHSGP = sampleFullTrajectoriesHSGP(2, M = M-1, log_k = true_k, log_l = true_l)
+trueHSGP_1 = sampleFullTrajectoriesHSGP(2, M = M-1, log_k = true_k, log_l = true_l)
+trueHSGP_2 = sampleFullTrajectoriesHSGP(2, M = M-1, log_k = true_k, log_l = true_l)
+
+trueHSGP$log_z[[2]] = matrix(rep(-100, 4), nrow = 2)
+trueHSGP$log_z[[1]] = matrix(rep(0, 4), nrow = 2)
 
 omega = (1:M-1)*pi
 spec_den = sqrt(2*pi)*true_l*exp(-0.5*true_l^2*omega^2)
@@ -976,13 +1162,24 @@ prior_beta_sigma = diag(c(true_k^2 * diag(spec_den) %*% matrix(rep(1,M^2), nrow 
 true_beta_1 = c(true_k*diag(sqrt(spec_den)) %*% trueHSGP$log_z[[1]] %*% diag(sqrt(spec_den)))
 true_beta_2 = c(true_k*diag(sqrt(spec_den)) %*% trueHSGP$log_z[[2]] %*% diag(sqrt(spec_den)))
 
+true_beta_1_1 = c(true_k*diag(sqrt(spec_den)) %*% trueHSGP_1$log_z[[1]] %*% diag(sqrt(spec_den)))
+true_beta_1_2 = c(true_k*diag(sqrt(spec_den)) %*% trueHSGP_1$log_z[[2]] %*% diag(sqrt(spec_den)))
+
 true_beta_mat = cbind(true_beta_1, true_beta_2)
 
+true_beta_mat_1 = cbind(true_beta_1_1, true_beta_1_2)
 
-sampledParticles = samplePhySpaceParticles(n_particles = 100, startTime = 0, n_obs = 20*10, border = c(-2,-2,2,2), borderBuffer = 0.2, baseVectorFields, trueHSGP,
-                                           M = 2, t_step_mean = 0.001, vel_sigma = 0, pos_sigma = 0)
+sampledParticles = samplePhySpaceParticles(n_particles = 100, startTime = 0, n_obs = 20*100, border = c(-2,-2,2,2), borderBuffer = 0.2, baseVectorFields, trueHSGP,
+                                           M = 2, t_step_mean = 0.1, vel_sigma = 0.001, pos_sigma = 0.001)
 
-sampledParticles_Sub = sampledParticles[1:(100*20) * 10 - (10-1),]
+sampledParticles_1 = samplePhySpaceParticles(n_particles = 100, startTime = 0, n_obs = 20*10, border = c(-2,-2,2,2), borderBuffer = 0.2, baseVectorFields, trueHSGP_1,
+                                             M = 2, t_step_mean = 0.001, vel_sigma = 0.001, pos_sigma = 0.001)
+
+sampledParticles = rbind(sampledParticles_1, sampledParticles_2)
+
+sampledParticles$Particle = rep(str_c('Particle', 1:100), each = 200)
+
+sampledParticles_Sub = sampledParticles_1[1:(100*20) * 10 - (10-1),]
 ggplot(sampledParticles_Sub, aes(x = X1, y = X2, color = Particle)) + geom_point() + theme(legend.position = 'None')
 
 sim_data_list = list()
@@ -996,19 +1193,23 @@ for(d in 1:100){
 
 }
 
+sim_data_list = list(data.frame(t = 0:19*(9*pi), X1 = rep(0,20), X2 = rep(c(1,-1),10)))
+
 
 traj_eval_grid = expand.grid(seq(-2,2, length.out = 100), seq(-2,2, length.out = 100))
 
-TrueTrajVals = exp(evaluate2DCosine_fast(true_beta_mat, pos_mat = traj_eval_grid, border = c(-2,-2,2,2)))
+TrueTrajVals = exp(evaluate2DCosine_fast(true_beta_mat_1, pos_mat = traj_eval_grid, border = c(-2,-2,2,2)))
 
+t1 = Sys.time()
 
-real_traj_test_1 = run_rMAP_Trajectory(N_samples = 100, sim_data_list = sim_data_list,
-                                       pos_sd = 0.001, vel_sd = 0, M = 2, prior_k = 0.35,
+real_traj_test_1 = run_rMAP_Trajectory_Multithread(N_samples = 100, sim_data_list = sim_data_list,
+                                       pos_sd = 0.001, vel_sd = 0, M = 1, prior_k = 0.35,
                                        prior_l = 1, baseVectorFields_Vec = baseVectorFields_Vec,
-                                       border = c(-2,-2,2,2), N_prop_steps = 5, traj_eval_grid = traj_eval_grid, print_every = 50)
-??nloptr
+                                       border = c(-2,-2,2,2), N_prop_steps = 5000, traj_eval_grid = traj_eval_grid, print_every = 50, n_threads = 32)
 
-mean(real_traj_test_1$MH_Acceptance)
+t2 = Sys.time()
+
+t2-t1
 
 PostTraj1_Mean = rowMeans(real_traj_test_1$Traj1Posterior)
 PostTraj2_Mean = rowMeans(real_traj_test_1$Traj2Posterior)
@@ -1026,9 +1227,13 @@ hist(CI_traj_1[,2] - CI_traj_1[,1])
 hist(CI_traj_2[,2] - CI_traj_2[,1])
 
 
-hist(real_traj_test_1$Beta1Posterior[,1])
+ggplot() + geom_histogram(aes(x = (exp(real_traj_test_1$Beta1Posterior)*9)[exp(real_traj_test_1$Beta1Posterior)*9 < 20]), binwidth = 1/10)
+
+which(real_traj_test_1$Beta1Posterior > 2)
 
 colMeans(real_traj_test_1$Beta1Posterior)
 colMeans(real_traj_test_1$Beta2Posterior)
+
+plot(exp(real_traj_test_1$Beta1Posterior)*9, exp(real_traj_test_1$Beta2Posterior))
 
 
