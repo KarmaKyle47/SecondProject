@@ -5,6 +5,8 @@ library(ggplot2)
 library(minqa)
 library(nloptr)
 library(splines2)
+library(parallel)
+library(pbapply)
 
 
 evaluateHSGP = function(z, k, l, M, border, curPos){
@@ -240,16 +242,16 @@ baseVectorFields_Vec = function(pos_t_mat){
 ######## Start Building the Path Mode Finder Function #####################
 
 trajectoryPost = cbind(real_traj_test_1$Beta1Posterior, real_traj_test_1$Beta2Posterior)
-data = sim_data_list[[18]]
+data = sim_data_list[[1]]
 pos_sd = 0.001
 pos_selection_sd = 0.001
 vel_sd = 0.001
 
-prior_nodes = seq(0, max(data$t), length.out = 6)[-c(1,12)]
-full_nodes = seq(0, max(data$t), length.out = 22)[-c(1,52)]
+full_nodes = seq(0, max(data$t), length.out = 252)[-c(1,252)]
 N_quad = 1000
+N_prop_steps = 100
 
-find_one_rMAP_Path = function(data, pos_sd, vel_sd, pos_selection_sd, trajectoryPost, border, N_quad, baseVectorFields_Vec, prior_nodes, full_nodes, print_every, plot){
+find_one_rMAP_Path = function(data, pos_sd, vel_sd, pos_selection_sd, trajectoryPost, border, N_quad, baseVectorFields_Vec, full_nodes, N_prop_steps, print_every, plot){
 
   # Step 1: Sample Trajectory - trajectory Post is a data.frame or matrix with each posterior draw as a row
 
@@ -261,19 +263,125 @@ find_one_rMAP_Path = function(data, pos_sd, vel_sd, pos_selection_sd, trajectory
   N = nrow(data)
   aug_data = data + matrix(c(rep(0, N), rnorm(N, 0, pos_sd), rnorm(N, 0, pos_sd)), byrow = F, ncol = 3)
 
+  aug_data_starts = aug_data[1:(N-1),]
+  aug_data_ends = aug_data[2:N,]
+
+  t_steps <- (aug_data_ends$t - aug_data_starts$t) / N_prop_steps
+  f_curPos_mat <- aug_data_starts
+  b_curPos_mat = aug_data_ends
+
+  f_all_steps = data.frame(t = rep(0,N_prop_steps*(N-1) + 1), X1 = rep(0,N_prop_steps*(N-1) + 1), X2 = rep(0,N_prop_steps*(N-1) + 1))
+  b_all_steps = data.frame(t = rep(0,N_prop_steps*(N-1) + 1), X1 = rep(0,N_prop_steps*(N-1) + 1), X2 = rep(0,N_prop_steps*(N-1) + 1))
+
+  f_all_steps[1,] = f_curPos_mat[1,]
+  b_all_steps[N_prop_steps*(N-1) + 1,] = b_curPos_mat[N-1,]
+
+  for(j in 1:N_prop_steps) {
+
+    #Forward
+
+    f_k1 <- TrajWeightedBaseVectorFields_2D_Cosine(
+      pos_t_mat = f_curPos_mat, beta_mat = sampledTrajectory, baseVectorFields_Vec = baseVectorFields_Vec, border = border
+    )
+
+    f_pos_mat_k2 <- f_curPos_mat
+    f_pos_mat_k2[, 1] <- f_pos_mat_k2[, 1] + t_steps / 2
+    f_pos_mat_k2[, 2] <- f_pos_mat_k2[, 2] + f_k1[, 1] * (t_steps / 2)
+    f_pos_mat_k2[, 3] <- f_pos_mat_k2[, 3] + f_k1[, 2] * (t_steps / 2)
+
+    f_k2 <- TrajWeightedBaseVectorFields_2D_Cosine(
+      pos_t_mat = f_pos_mat_k2, beta_mat = sampledTrajectory, baseVectorFields_Vec = baseVectorFields_Vec, border = border
+    )
+
+    f_pos_mat_k3 <- f_curPos_mat
+    f_pos_mat_k3[, 1] <- f_pos_mat_k3[, 1] + t_steps / 2
+    f_pos_mat_k3[, 2] <- f_pos_mat_k3[, 2] + f_k2[, 1] * (t_steps / 2)
+    f_pos_mat_k3[, 3] <- f_pos_mat_k3[, 3] + f_k2[, 2] * (t_steps / 2)
+
+    f_k3 <- TrajWeightedBaseVectorFields_2D_Cosine(
+      pos_t_mat = f_pos_mat_k3, beta_mat = sampledTrajectory, baseVectorFields_Vec = baseVectorFields_Vec, border = border
+    )
+
+    f_pos_mat_k4 <- f_curPos_mat
+    f_pos_mat_k4[, 1] <- f_pos_mat_k4[, 1] + t_steps
+    f_pos_mat_k4[, 2] <- f_pos_mat_k4[, 2] + f_k3[, 1] * t_steps
+    f_pos_mat_k4[, 3] <- f_pos_mat_k4[, 3] + f_k3[, 2] * t_steps
+
+    f_k4 <- TrajWeightedBaseVectorFields_2D_Cosine(
+      pos_t_mat = f_pos_mat_k4, beta_mat = sampledTrajectory, baseVectorFields_Vec = baseVectorFields_Vec, border = border
+    )
+
+    f_rk4_drift_1 <- (f_k1[, 1] + 2 * f_k2[, 1] + 2 * f_k3[, 1] + f_k4[, 1]) / 6
+    f_rk4_drift_2 <- (f_k1[, 2] + 2 * f_k2[, 2] + 2 * f_k3[, 2] + f_k4[, 2]) / 6
+
+    f_curPos_mat[, 1] <- f_curPos_mat[, 1] + t_steps
+    f_curPos_mat[, 2] <- f_curPos_mat[, 2] + f_rk4_drift_1 * t_steps
+    f_curPos_mat[, 3] <- f_curPos_mat[, 3] + f_rk4_drift_2 * t_steps
+
+    f_all_steps[0:(N-2) * N_prop_steps + j + 1,1] = f_curPos_mat[,1]
+    f_all_steps[0:(N-2) * N_prop_steps + j + 1,2] = f_curPos_mat[,2]
+    f_all_steps[0:(N-2) * N_prop_steps + j + 1,3] = f_curPos_mat[,3]
+
+    #Backward
+
+    b_k1 <- -1*TrajWeightedBaseVectorFields_2D_Cosine(
+      pos_t_mat = b_curPos_mat, beta_mat = sampledTrajectory, baseVectorFields_Vec = baseVectorFields_Vec, border = border
+    )
+
+    b_pos_mat_k2 <- b_curPos_mat
+    b_pos_mat_k2[, 1] <- b_pos_mat_k2[, 1] - t_steps / 2
+    b_pos_mat_k2[, 2] <- b_pos_mat_k2[, 2] + b_k1[, 1] * (t_steps / 2)
+    b_pos_mat_k2[, 3] <- b_pos_mat_k2[, 3] + b_k1[, 2] * (t_steps / 2)
+
+    b_k2 <- -1*TrajWeightedBaseVectorFields_2D_Cosine(
+      pos_t_mat = b_pos_mat_k2, beta_mat = sampledTrajectory, baseVectorFields_Vec = baseVectorFields_Vec, border = border
+    )
+
+    b_pos_mat_k3 <- b_curPos_mat
+    b_pos_mat_k3[, 1] <- b_pos_mat_k3[, 1] - t_steps / 2
+    b_pos_mat_k3[, 2] <- b_pos_mat_k3[, 2] + b_k2[, 1] * (t_steps / 2)
+    b_pos_mat_k3[, 3] <- b_pos_mat_k3[, 3] + b_k2[, 2] * (t_steps / 2)
+
+    b_k3 <- -1*TrajWeightedBaseVectorFields_2D_Cosine(
+      pos_t_mat = b_pos_mat_k3, beta_mat = sampledTrajectory, baseVectorFields_Vec = baseVectorFields_Vec, border = border
+    )
+
+    b_pos_mat_k4 <- b_curPos_mat
+    b_pos_mat_k4[, 1] <- b_pos_mat_k4[, 1] - t_steps
+    b_pos_mat_k4[, 2] <- b_pos_mat_k4[, 2] + b_k3[, 1] * t_steps
+    b_pos_mat_k4[, 3] <- b_pos_mat_k4[, 3] + b_k3[, 2] * t_steps
+
+    b_k4 <- -1*TrajWeightedBaseVectorFields_2D_Cosine(
+      pos_t_mat = b_pos_mat_k4, beta_mat = sampledTrajectory, baseVectorFields_Vec = baseVectorFields_Vec, border = border
+    )
+
+    b_rk4_drift_1 <- (b_k1[, 1] + 2 * b_k2[, 1] + 2 * b_k3[, 1] + b_k4[, 1]) / 6
+    b_rk4_drift_2 <- (b_k1[, 2] + 2 * b_k2[, 2] + 2 * b_k3[, 2] + b_k4[, 2]) / 6
+
+    b_curPos_mat[, 1] <- b_curPos_mat[, 1] - t_steps
+    b_curPos_mat[, 2] <- b_curPos_mat[, 2] + b_rk4_drift_1 * t_steps
+    b_curPos_mat[, 3] <- b_curPos_mat[, 3] + b_rk4_drift_2 * t_steps
+
+    b_all_steps[1:(N-1) * N_prop_steps + 1 - j,1] = b_curPos_mat[,1]
+    b_all_steps[1:(N-1) * N_prop_steps + 1 - j,2] = b_curPos_mat[,2]
+    b_all_steps[1:(N-1) * N_prop_steps + 1 - j,3] = b_curPos_mat[,3]
+
+  }
+
+  Prop_Avg_Pos_mat = (f_all_steps + b_all_steps) / 2
+
   # Step 3: Get prior path using a bSpline regression with prior_nodes
 
-  t_quad = seq(min(aug_data$t), max(aug_data$t), length.out = N_quad)
+  Phi_prior = bSpline(Prop_Avg_Pos_mat$t, knots = full_nodes, intercept = T)
+  Phi_prior_d = bSpline(Prop_Avg_Pos_mat$t, knots = full_nodes, intercept = T, derivs = 1)
 
-  Phi_data_prior = bSpline(aug_data$t, knots = prior_nodes, intercept = T)
-  Phi_prior = bSpline(t_quad, knots = prior_nodes, intercept = T)
-  Phi_prior_d = bSpline(t_quad, knots = prior_nodes, intercept = T, derivs = 1)
-
-  Phi_data_prior_H = solve(t(Phi_data_prior) %*% Phi_data_prior) %*% t(Phi_data_prior)
-  prior_c_x = Phi_data_prior_H %*% aug_data$X1
-  prior_c_y = Phi_data_prior_H %*% aug_data$X2
+  Phi_prior_H = solve(t(Phi_prior) %*% Phi_prior) %*% t(Phi_prior)
+  prior_c_x = Phi_prior_H %*% Prop_Avg_Pos_mat$X1
+  prior_c_y = Phi_prior_H %*% Prop_Avg_Pos_mat$X2
 
   # Step 4: Get full path basis to add onto prior with full nodes
+
+  t_quad = seq(min(aug_data$t), max(aug_data$t), length.out = N_quad)
 
   Phi_data_full = bSpline(aug_data$t, knots = full_nodes, intercept = T)
   Phi_full = bSpline(t_quad, knots = full_nodes, intercept = T)
@@ -289,15 +397,8 @@ find_one_rMAP_Path = function(data, pos_sd, vel_sd, pos_selection_sd, trajectory
   c_prior_sigma = (N_quad / Lt * pos_selection_sd^2) * helper_M_inv
   inv_c_prior_sigma = (Lt / (N_quad * pos_selection_sd^2)) * helper_M
 
-  # Step 5.5: Project prior_c to the full dimension
-
-  full_Proj_M = helper_M_inv %*% t(Phi_full) %*% Phi_prior
-
-  prior_full_c_x = full_Proj_M %*% prior_c_x
-  prior_full_c_y = full_Proj_M %*% prior_c_y
-
-  start_c_x = prior_full_c_x + mvrnorm(mu = rep(0, N_param), Sigma = c_prior_sigma)
-  start_c_y = prior_full_c_y + mvrnorm(mu = rep(0, N_param), Sigma = c_prior_sigma)
+  start_c_x = prior_c_x + mvrnorm(mu = rep(0, N_param), Sigma = c_prior_sigma)
+  start_c_y = prior_c_y + mvrnorm(mu = rep(0, N_param), Sigma = c_prior_sigma)
 
   start_c = c(start_c_x, start_c_y)
 
@@ -368,7 +469,7 @@ find_one_rMAP_Path = function(data, pos_sd, vel_sd, pos_selection_sd, trajectory
     opts = list(
       "algorithm"   = "NLOPT_LN_NEWUOA",
       "ftol_rel"    = 1e-6,
-      "maxeval"     = 2000,
+      "maxeval"     = 5000,
       "print_level" = 0
     )
   )
@@ -429,7 +530,7 @@ find_one_rMAP_Path = function(data, pos_sd, vel_sd, pos_selection_sd, trajectory
 
   ## Prior Loss
 
-  opt_prior_NLL = as.numeric((t(opt_c_x - prior_full_c_x) %*% inv_c_prior_sigma %*% (opt_c_x - prior_full_c_x) + t(opt_c_y - prior_full_c_y) %*% inv_c_prior_sigma %*% (opt_c_y - prior_full_c_y)) / 2)
+  opt_prior_NLL = as.numeric((t(opt_c_x - start_c_x) %*% inv_c_prior_sigma %*% (opt_c_x - start_c_x) + t(opt_c_y - start_c_y) %*% inv_c_prior_sigma %*% (opt_c_y - start_c_y)) / 2)
 
   opt_NLL = opt_pos_NLL + opt_vel_NLL + opt_prior_NLL
 
@@ -445,7 +546,303 @@ find_one_rMAP_Path = function(data, pos_sd, vel_sd, pos_selection_sd, trajectory
 
 }
 
-run_rMAP_Path = function(N_samples, data, pos_sd, vel_sd, pos_selection_sd, trajectoryPost, border, N_quad, baseVectorFields_Vec, prior_nodes, full_nodes, print_every = 50, plot = F){
+find_one_rMAP_Path_Multithread = function(data, pos_sd, vel_sd, pos_selection_sd, trajectoryPost, border, N_quad, baseVectorFields_Vec, full_nodes, N_prop_steps, print_every, plot, n_threads){
+
+  # Step 1: Sample Trajectory - trajectory Post is a data.frame or matrix with each posterior draw as a row
+
+  sampledTrajectory = matrix(trajectoryPost[sample(1:nrow(trajectoryPost), size = 1),], ncol = 2, byrow = F)
+
+  # Step 2: Augment Data with positional error
+  # data is Nx3 with columns t, X1, X2
+
+  N = nrow(data)
+  aug_data = data + matrix(c(rep(0, N), rnorm(N, 0, pos_sd), rnorm(N, 0, pos_sd)), byrow = F, ncol = 3)
+
+  aug_data_starts = aug_data[1:(N-1),]
+  aug_data_ends = aug_data[2:N,]
+
+  t_steps <- (aug_data_ends$t - aug_data_starts$t) / N_prop_steps
+  f_curPos_mat <- aug_data_starts
+  b_curPos_mat = aug_data_ends
+
+  f_all_steps = data.frame(t = rep(0,N_prop_steps*(N-1) + 1), X1 = rep(0,N_prop_steps*(N-1) + 1), X2 = rep(0,N_prop_steps*(N-1) + 1))
+  b_all_steps = data.frame(t = rep(0,N_prop_steps*(N-1) + 1), X1 = rep(0,N_prop_steps*(N-1) + 1), X2 = rep(0,N_prop_steps*(N-1) + 1))
+
+  f_all_steps[1,] = f_curPos_mat[1,]
+  b_all_steps[N_prop_steps*(N-1) + 1,] = b_curPos_mat[N-1,]
+
+  for(j in 1:N_prop_steps) {
+
+    #Forward
+
+    f_k1 <- TrajWeightedBaseVectorFields_2D_Cosine(
+      pos_t_mat = f_curPos_mat, beta_mat = sampledTrajectory, baseVectorFields_Vec = baseVectorFields_Vec, border = border
+    )
+
+    f_pos_mat_k2 <- f_curPos_mat
+    f_pos_mat_k2[, 1] <- f_pos_mat_k2[, 1] + t_steps / 2
+    f_pos_mat_k2[, 2] <- f_pos_mat_k2[, 2] + f_k1[, 1] * (t_steps / 2)
+    f_pos_mat_k2[, 3] <- f_pos_mat_k2[, 3] + f_k1[, 2] * (t_steps / 2)
+
+    f_k2 <- TrajWeightedBaseVectorFields_2D_Cosine(
+      pos_t_mat = f_pos_mat_k2, beta_mat = sampledTrajectory, baseVectorFields_Vec = baseVectorFields_Vec, border = border
+    )
+
+    f_pos_mat_k3 <- f_curPos_mat
+    f_pos_mat_k3[, 1] <- f_pos_mat_k3[, 1] + t_steps / 2
+    f_pos_mat_k3[, 2] <- f_pos_mat_k3[, 2] + f_k2[, 1] * (t_steps / 2)
+    f_pos_mat_k3[, 3] <- f_pos_mat_k3[, 3] + f_k2[, 2] * (t_steps / 2)
+
+    f_k3 <- TrajWeightedBaseVectorFields_2D_Cosine(
+      pos_t_mat = f_pos_mat_k3, beta_mat = sampledTrajectory, baseVectorFields_Vec = baseVectorFields_Vec, border = border
+    )
+
+    f_pos_mat_k4 <- f_curPos_mat
+    f_pos_mat_k4[, 1] <- f_pos_mat_k4[, 1] + t_steps
+    f_pos_mat_k4[, 2] <- f_pos_mat_k4[, 2] + f_k3[, 1] * t_steps
+    f_pos_mat_k4[, 3] <- f_pos_mat_k4[, 3] + f_k3[, 2] * t_steps
+
+    f_k4 <- TrajWeightedBaseVectorFields_2D_Cosine(
+      pos_t_mat = f_pos_mat_k4, beta_mat = sampledTrajectory, baseVectorFields_Vec = baseVectorFields_Vec, border = border
+    )
+
+    f_rk4_drift_1 <- (f_k1[, 1] + 2 * f_k2[, 1] + 2 * f_k3[, 1] + f_k4[, 1]) / 6
+    f_rk4_drift_2 <- (f_k1[, 2] + 2 * f_k2[, 2] + 2 * f_k3[, 2] + f_k4[, 2]) / 6
+
+    f_curPos_mat[, 1] <- f_curPos_mat[, 1] + t_steps
+    f_curPos_mat[, 2] <- f_curPos_mat[, 2] + f_rk4_drift_1 * t_steps
+    f_curPos_mat[, 3] <- f_curPos_mat[, 3] + f_rk4_drift_2 * t_steps
+
+    f_all_steps[0:(N-2) * N_prop_steps + j + 1,1] = f_curPos_mat[,1]
+    f_all_steps[0:(N-2) * N_prop_steps + j + 1,2] = f_curPos_mat[,2]
+    f_all_steps[0:(N-2) * N_prop_steps + j + 1,3] = f_curPos_mat[,3]
+
+    #Backward
+
+    b_k1 <- -1*TrajWeightedBaseVectorFields_2D_Cosine(
+      pos_t_mat = b_curPos_mat, beta_mat = sampledTrajectory, baseVectorFields_Vec = baseVectorFields_Vec, border = border
+    )
+
+    b_pos_mat_k2 <- b_curPos_mat
+    b_pos_mat_k2[, 1] <- b_pos_mat_k2[, 1] - t_steps / 2
+    b_pos_mat_k2[, 2] <- b_pos_mat_k2[, 2] + b_k1[, 1] * (t_steps / 2)
+    b_pos_mat_k2[, 3] <- b_pos_mat_k2[, 3] + b_k1[, 2] * (t_steps / 2)
+
+    b_k2 <- -1*TrajWeightedBaseVectorFields_2D_Cosine(
+      pos_t_mat = b_pos_mat_k2, beta_mat = sampledTrajectory, baseVectorFields_Vec = baseVectorFields_Vec, border = border
+    )
+
+    b_pos_mat_k3 <- b_curPos_mat
+    b_pos_mat_k3[, 1] <- b_pos_mat_k3[, 1] - t_steps / 2
+    b_pos_mat_k3[, 2] <- b_pos_mat_k3[, 2] + b_k2[, 1] * (t_steps / 2)
+    b_pos_mat_k3[, 3] <- b_pos_mat_k3[, 3] + b_k2[, 2] * (t_steps / 2)
+
+    b_k3 <- -1*TrajWeightedBaseVectorFields_2D_Cosine(
+      pos_t_mat = b_pos_mat_k3, beta_mat = sampledTrajectory, baseVectorFields_Vec = baseVectorFields_Vec, border = border
+    )
+
+    b_pos_mat_k4 <- b_curPos_mat
+    b_pos_mat_k4[, 1] <- b_pos_mat_k4[, 1] - t_steps
+    b_pos_mat_k4[, 2] <- b_pos_mat_k4[, 2] + b_k3[, 1] * t_steps
+    b_pos_mat_k4[, 3] <- b_pos_mat_k4[, 3] + b_k3[, 2] * t_steps
+
+    b_k4 <- -1*TrajWeightedBaseVectorFields_2D_Cosine(
+      pos_t_mat = b_pos_mat_k4, beta_mat = sampledTrajectory, baseVectorFields_Vec = baseVectorFields_Vec, border = border
+    )
+
+    b_rk4_drift_1 <- (b_k1[, 1] + 2 * b_k2[, 1] + 2 * b_k3[, 1] + b_k4[, 1]) / 6
+    b_rk4_drift_2 <- (b_k1[, 2] + 2 * b_k2[, 2] + 2 * b_k3[, 2] + b_k4[, 2]) / 6
+
+    b_curPos_mat[, 1] <- b_curPos_mat[, 1] - t_steps
+    b_curPos_mat[, 2] <- b_curPos_mat[, 2] + b_rk4_drift_1 * t_steps
+    b_curPos_mat[, 3] <- b_curPos_mat[, 3] + b_rk4_drift_2 * t_steps
+
+    b_all_steps[1:(N-1) * N_prop_steps + 1 - j,1] = b_curPos_mat[,1]
+    b_all_steps[1:(N-1) * N_prop_steps + 1 - j,2] = b_curPos_mat[,2]
+    b_all_steps[1:(N-1) * N_prop_steps + 1 - j,3] = b_curPos_mat[,3]
+
+  }
+
+  Prop_Avg_Pos_mat = (f_all_steps + b_all_steps) / 2
+
+  # Step 3: Get prior path using a bSpline regression with prior_nodes
+
+  Phi_prior = bSpline(Prop_Avg_Pos_mat$t, knots = full_nodes, intercept = T)
+  Phi_prior_d = bSpline(Prop_Avg_Pos_mat$t, knots = full_nodes, intercept = T, derivs = 1)
+
+  Phi_prior_H = solve(t(Phi_prior) %*% Phi_prior) %*% t(Phi_prior)
+  prior_c_x = Phi_prior_H %*% Prop_Avg_Pos_mat$X1
+  prior_c_y = Phi_prior_H %*% Prop_Avg_Pos_mat$X2
+
+  # Step 4: Get full path basis to add onto prior with full nodes
+
+  t_quad = seq(min(aug_data$t), max(aug_data$t), length.out = N_quad)
+
+  Phi_data_full = bSpline(aug_data$t, knots = full_nodes, intercept = T)
+  Phi_full = bSpline(t_quad, knots = full_nodes, intercept = T)
+  Phi_full_d = bSpline(t_quad, knots = full_nodes, intercept = T, derivs = 1)
+  N_param = ncol(Phi_full)
+
+  # Step 5: Sample random initial path
+  Lt = max(aug_data$t) - min(aug_data$t)
+
+  helper_M = t(Phi_full) %*% Phi_full
+  helper_M_inv = ginv(helper_M)
+
+  c_prior_sigma = (N_quad / Lt * pos_selection_sd^2) * helper_M_inv
+  inv_c_prior_sigma = (Lt / (N_quad * pos_selection_sd^2)) * helper_M
+
+  start_c_x = prior_c_x + mvrnorm(mu = rep(0, N_param), Sigma = c_prior_sigma)
+  start_c_y = prior_c_y + mvrnorm(mu = rep(0, N_param), Sigma = c_prior_sigma)
+
+  start_c = c(start_c_x, start_c_y)
+
+  rand_vel_x = rnorm(N_quad, 0, sd = vel_sd)
+  rand_vel_y = rnorm(N_quad, 0, sd = vel_sd)
+
+  # =================================================================
+  # Step 6: Define loss function
+  # =================================================================
+
+  aug_X_matrix = as.matrix(aug_data[, c("X1", "X2")])
+  eval_counter <- 0
+
+  # Clean visual header for a new optimization run
+  cat("\n=======================================================\n")
+  cat("       Starting Optimization for New Sample            \n")
+  cat("=======================================================\n\n")
+
+  rMAP_loss = function(c) {
+
+    eval_counter <<- eval_counter + 1
+
+    # Call the compiled C++ function
+    loss = spline_rMAP_loss_cpp_multi(
+      c_params          = c,
+      Phi_data          = Phi_data_full,
+      Phi_quad          = Phi_full,
+      Phi_deriv_quad    = Phi_full_d,
+      aug_X             = aug_X_matrix,
+      sampledTrajectory = sampledTrajectory,
+      border            = border,
+      pos_sd            = pos_sd,
+      vel_sd            = vel_sd,
+      rand_vel_x        = rand_vel_x,
+      rand_vel_y        = rand_vel_y,
+      prior_c           = start_c,
+      inv_c_prior_sigma = inv_c_prior_sigma,
+      Lt                = Lt,
+      n_threads         = n_threads
+    )
+
+    if (eval_counter %% print_every == 0) {
+
+      # Truncate C array so it doesn't word-wrap in the console
+      n_c = length(c)
+      if (n_c > 6) {
+        c_str = paste0(sprintf("%.3f, %.3f, %.3f", c[1], c[2], c[3]),
+                       ", ... , ",
+                       sprintf("%.3f, %.3f, %.3f", c[n_c-2], c[n_c-1], c[n_c]))
+      } else {
+        c_str = paste(sprintf("%.3f", c), collapse = ", ")
+      }
+
+      # Formatted output with trailing newline
+      cat(sprintf("  Iter: %4d  |  Loss: %12.4f  |  C: [%s]\n",
+                  eval_counter, loss, c_str))
+    }
+
+    return(loss)
+  }
+
+  # =================================================================
+  # Step 7: Run the optimization
+  # =================================================================
+
+  opt_result = nloptr(
+    x0 = start_c,
+    eval_f = rMAP_loss,
+    opts = list(
+      "algorithm"   = "NLOPT_LN_NEWUOA",
+      "ftol_rel"    = 1e-6,
+      "maxeval"     = 5000,
+      "print_level" = 0
+    )
+  )
+
+  # Format the Final output identically
+  final_c = opt_result$solution
+  n_fc = length(final_c)
+  if (n_fc > 6) {
+    final_c_str = paste0(sprintf("%.3f, %.3f, %.3f", final_c[1], final_c[2], final_c[3]),
+                         ", ... , ",
+                         sprintf("%.3f, %.3f, %.3f", final_c[n_fc-2], final_c[n_fc-1], final_c[n_fc]))
+  } else {
+    final_c_str = paste(sprintf("%.3f", final_c), collapse = ", ")
+  }
+
+  # Add visual footer to close out the optimization block
+  cat("\n-------------------------------------------------------\n")
+  cat(sprintf("  FINAL Iter: %4d  |  Loss: %12.4f  |  C: [%s]\n",
+              opt_result$iterations, opt_result$objective, final_c_str))
+  cat("-------------------------------------------------------\n\n")
+
+  # Step 8: Extract the optimized control points
+  optimized_c = opt_result$solution
+
+  opt_c_x = optimized_c[1:N_param]
+  opt_c_y = optimized_c[1:N_param + N_param]
+
+  # Eval Optimized Path
+
+  opt_path_x = Phi_full %*% opt_c_x
+  opt_path_y = Phi_full %*% opt_c_y
+
+  opt_path_data_x = Phi_data_full %*% opt_c_x
+  opt_path_data_y = Phi_data_full %*% opt_c_y
+
+  opt_path_x_d = Phi_full_d %*% opt_c_x
+  opt_path_y_d = Phi_full_d %*% opt_c_y
+
+  opt_path_traj_vel = TrajWeightedBaseVectorFields_2D_Cosine(cbind(t_quad, opt_path_x, opt_path_y), sampledTrajectory, baseVectorFields_Vec, border)
+
+  opt_path_traj_vel_x = opt_path_traj_vel[,1]
+  opt_path_traj_vel_y = opt_path_traj_vel[,2]
+
+
+  ## Positional Loss
+
+  data_diff_x = data$X1 - opt_path_data_x
+  data_diff_y = data$X2 - opt_path_data_y
+
+  opt_pos_NLL = sum(data_diff_x^2 + data_diff_y^2) / (2 * pos_sd^2)
+
+  ## Velocity Loss
+
+  vel_diff_x = opt_path_x_d - opt_path_traj_vel_x
+  vel_diff_y = opt_path_y_d - opt_path_traj_vel_y
+
+  opt_vel_NLL = sum(vel_diff_x^2 + vel_diff_y^2) / (2 * vel_sd^2) * (Lt/N_quad)
+
+  ## Prior Loss
+
+  opt_prior_NLL = as.numeric((t(opt_c_x - start_c_x) %*% inv_c_prior_sigma %*% (opt_c_x - start_c_x) + t(opt_c_y - start_c_y) %*% inv_c_prior_sigma %*% (opt_c_y - start_c_y)) / 2)
+
+  opt_NLL = opt_pos_NLL + opt_vel_NLL + opt_prior_NLL
+
+  cat("\n")
+
+  if(plot){
+
+    ggplot() + geom_path(aes(x = opt_path_x, y = opt_path_y), size = 0.75) + geom_point(data = aug_data, aes(x = X1, y = X2), color = 'red')
+
+  }
+
+  list(Optimized_C = cbind(opt_c_x, opt_c_y), Optimized_Path = cbind(opt_path_x, opt_path_y), Posterior_NLL_Position = opt_pos_NLL, Posterior_NLL_Velocity = opt_vel_NLL, Posterior_NLL_Prior = opt_prior_NLL)
+
+}
+
+run_rMAP_Path = function(N_samples, data, pos_sd, vel_sd, pos_selection_sd, trajectoryPost, border, N_quad, baseVectorFields_Vec, full_nodes, N_prop_steps, print_every = 50, plot = F){
 
   N_full_nodes = length(full_nodes)
 
@@ -465,7 +862,7 @@ run_rMAP_Path = function(N_samples, data, pos_sd, vel_sd, pos_selection_sd, traj
     flush.console()
 
     cur_sample = find_one_rMAP_Path(data = data, pos_sd = pos_sd, vel_sd = vel_sd, pos_selection_sd = pos_selection_sd, trajectoryPost = trajectoryPost, border = c(-2,-2,2,2),
-                                      N_quad = N_quad, baseVectorFields_Vec = baseVectorFields_Vec, prior_nodes = prior_nodes, full_nodes = full_nodes, print_every = print_every, plot = T)
+                                      N_quad = N_quad, baseVectorFields_Vec = baseVectorFields_Vec, full_nodes = full_nodes, N_prop_steps = N_prop_steps, print_every = print_every, plot = plot)
 
     C_X_Samples[i,] = cur_sample$Optimized_C[,1]
     C_Y_Samples[i,] = cur_sample$Optimized_C[,2]
@@ -484,31 +881,196 @@ run_rMAP_Path = function(N_samples, data, pos_sd, vel_sd, pos_selection_sd, traj
 
 }
 
+run_rMAP_Path_Parellel <- function(N_samples, data, pos_sd, vel_sd, pos_selection_sd,
+                                  trajectoryPost, border, N_quad, baseVectorFields_Vec,
+                                  full_nodes, N_prop_steps, num_cores = 8,
+                                  cpp_code_string) { # Pass your cpp_code string here
+
+  # 1. Set up the Windows cluster
+  cat(sprintf("Setting up cluster with %d cores...\n", num_cores))
+  cl <- makeCluster(num_cores)
+
+  # 2a. Export LOCAL variables (from inside this function's arguments)
+  clusterExport(cl, varlist = c(
+    "cpp_code_string",
+    "data",
+    "pos_sd",
+    "vel_sd",
+    "pos_selection_sd",
+    "trajectoryPost",
+    "border",
+    "N_quad",
+    "baseVectorFields_Vec",
+    "full_nodes",
+    "N_prop_steps"
+  ), envir = environment())
+
+  # 2b. Export GLOBAL custom functions (from your main R script)
+  clusterExport(cl, varlist = c(
+    "find_one_rMAP_Path",
+    "TrajWeightedBaseVectorFields_2D_Cosine",
+    "evaluate2DCosine_fast"
+    # Add ANY other custom functions find_one_rMAP_Path uses here!
+  ), envir = .GlobalEnv)
+
+  # 3. Initialize the workers (Load packages and compile C++)
+  # This takes a few seconds but only happens ONCE when the cluster starts
+  cat("Compiling C++ code on worker nodes...\n")
+  clusterEvalQ(cl, {
+    library(Rcpp)
+    library(RcppArmadillo)
+    library(plotly)
+    library(stringr)
+    library(MASS)
+    library(ggplot2)
+    library(minqa)
+    library(nloptr)
+    library(splines2)
+    library(parallel)
+    # Workers compile the C++ code so they have valid memory pointers
+    sourceCpp(code = cpp_code_string)
+  })
+
+  # 4. Define the worker function with a debugger
+  worker_func <- function(i) {
+    tryCatch({
+
+      # Your normal function call
+      cur_sample = find_one_rMAP_Path(
+        data = data, pos_sd = pos_sd, vel_sd = vel_sd,
+        pos_selection_sd = pos_selection_sd, trajectoryPost = trajectoryPost,
+        border = c(-2,-2,2,2), N_quad = N_quad,
+        baseVectorFields_Vec = baseVectorFields_Vec, full_nodes = full_nodes,
+        N_prop_steps = N_prop_steps, print_every = 99999999999999, plot = FALSE
+      )
+
+      list(
+        C_X       = cur_sample$Optimized_C[,1],
+        C_Y       = cur_sample$Optimized_C[,2],
+        Path_X    = cur_sample$Optimized_Path[,1],
+        Path_Y    = cur_sample$Optimized_Path[,2],
+        NLL_Pos   = cur_sample$Posterior_NLL_Position,
+        NLL_Vel   = cur_sample$Posterior_NLL_Velocity,
+        NLL_Prior = cur_sample$Posterior_NLL_Prior
+      )
+
+    }, error = function(e) {
+      # If it crashes, return the EXACT error and traceback
+      paste("Worker Failed. Error:", e$message)
+    })
+  }
+
+  # 5. Run the loop in parallel
+  cat("Running optimizations...\n")
+  pboptions(type = "timer") # Gives a nice estimated time remaining
+  results <- pblapply(1:N_samples, worker_func, cl = cl)
+
+  # 6. Shut down the cluster
+  stopCluster(cl)
+
+  # ========================================================
+  # NEW: Intercept and print errors before unpacking!
+  # ========================================================
+  is_error <- sapply(results, is.character)
+  if (any(is_error)) {
+    cat("\n=========================================\n")
+    cat("FATAL ERROR ON WORKER NODES DETECTED:\n")
+    # Print the exact error message from the first failed node
+    print(results[[which(is_error)[1]]])
+    cat("=========================================\n")
+    stop("Execution halted to prevent unpacking crash.")
+  }
+
+  closeAllConnections()
+
+  # 7. Unpack and return (only runs if everything succeeded)
+  list(
+    C_Draws_X      = do.call(rbind, lapply(results, `[[`, "C_X")),
+    C_Draws_Y      = do.call(rbind, lapply(results, `[[`, "C_Y")),
+    Path_X_Samples = do.call(rbind, lapply(results, `[[`, "Path_X")),
+    Path_Y_Samples = do.call(rbind, lapply(results, `[[`, "Path_Y")),
+    NLL_Pos        = sapply(results, `[[`, "NLL_Pos"),
+    NLL_Vel        = sapply(results, `[[`, "NLL_Vel"),
+    NLL_Prior      = sapply(results, `[[`, "NLL_Prior")
+  )
+}
+
+run_rMAP_Path_Multithread = function(N_samples, data, pos_sd, vel_sd, pos_selection_sd, trajectoryPost, border, N_quad, baseVectorFields_Vec, full_nodes, N_prop_steps, print_every = 50, plot = F, n_threads){
+
+  N_full_nodes = length(full_nodes)
+
+  C_X_Samples = matrix(nrow = N_samples, ncol = N_full_nodes+4)
+  C_Y_Samples = matrix(nrow = N_samples, ncol = N_full_nodes+4)
+
+  Path_X_Samples = matrix(nrow = N_samples, ncol = N_quad)
+  Path_Y_Samples = matrix(nrow = N_samples, ncol = N_quad)
+
+  NLL_Pos = rep(0, N_samples)
+  NLL_Vel = rep(0, N_samples)
+  NLL_Prior = rep(0, N_samples)
+
+  for(i in 1:N_samples){
+
+    cat(sprintf("=========== PROGRESS: Sample %d of %d ===========\n", i, N_samples))
+    flush.console()
+
+    cur_sample = find_one_rMAP_Path_Multithread(data = data, pos_sd = pos_sd, vel_sd = vel_sd, pos_selection_sd = pos_selection_sd, trajectoryPost = trajectoryPost, border = c(-2,-2,2,2),
+                                    N_quad = N_quad, baseVectorFields_Vec = baseVectorFields_Vec, full_nodes = full_nodes, N_prop_steps = N_prop_steps, print_every = print_every, plot = plot, n_threads = n_threads)
+
+    C_X_Samples[i,] = cur_sample$Optimized_C[,1]
+    C_Y_Samples[i,] = cur_sample$Optimized_C[,2]
+
+    Path_X_Samples[i,] = cur_sample$Optimized_Path[,1]
+    Path_Y_Samples[i,] = cur_sample$Optimized_Path[,2]
+
+    NLL_Pos[i] = cur_sample$Posterior_NLL_Position
+    NLL_Vel[i] = cur_sample$Posterior_NLL_Velocity
+    NLL_Prior[i] = cur_sample$Posterior_NLL_Prior
+
+  }
+
+  list(C_Draws_X = C_X_Samples, C_Draws_Y = C_Y_Samples, Path_X_Samples = Path_X_Samples, Path_Y_Samples = Path_Y_Samples,
+       NLL_Pos = NLL_Pos, NLL_Vel = NLL_Vel, NLL_Prior = NLL_Prior)
+
+}
+
+
 ## Testing ##
 
 trajectoryPost = cbind(real_traj_test_1$Beta1Posterior, real_traj_test_1$Beta2Posterior)
-data = sim_data_list[[18]]
+data = sim_data_list[[1]]
 pos_sd = 0.001
-pos_selection_sd = 0.001
+pos_selection_sd = 0.01
 vel_sd = 0.001
-N_prior_nodes = 4
+N_prior_nodes = 10
 prior_nodes = seq(0, max(data$t), length.out = N_prior_nodes+2)[-c(1,N_prior_nodes+2)]
-N_full_nodes = 20
+N_full_nodes = 250
 full_nodes = seq(0, max(data$t), length.out = N_full_nodes+2)[-c(1,N_full_nodes+2)]
 N_quad = 1000
+N_prop_steps = 100
 
 N_samples = 100
 
-test_path_samples = run_rMAP_Path(N_samples = 100, data = data, pos_sd = pos_sd, vel_sd = vel_sd, pos_selection_sd = pos_selection_sd,
+t1 = Sys.time()
+
+test_path_samples = run_rMAP_Path_Parellel(N_samples = N_samples, data = data, pos_sd = pos_sd, vel_sd = vel_sd, pos_selection_sd = pos_selection_sd,
+                                              trajectoryPost = trajectoryPost, border = c(-2,-2,2,2), N_quad = N_quad,
+                                              baseVectorFields_Vec = baseVectorFields_Vec, full_nodes = full_nodes, N_prop_steps = N_prop_steps, num_cores = 32, cpp_code_string = cpp_code)
+t2 = Sys.time()
+
+test_path_samples = run_rMAP_Path_Multithread(N_samples = N_samples, data = data, pos_sd = pos_sd, vel_sd = vel_sd, pos_selection_sd = pos_selection_sd,
                                         trajectoryPost = trajectoryPost, border = c(-2,-2,2,2), N_quad = N_quad,
-                                        baseVectorFields_Vec = baseVectorFields_Vec, prior_nodes = prior_nodes, full_nodes = full_nodes, print_every = 500, plot = F)
-hist(test_path_samples$NLL_Prior)
+                                        baseVectorFields_Vec = baseVectorFields_Vec, full_nodes = full_nodes, N_prop_steps = N_prop_steps, print_every = 500, plot = T, n_threads = 1)
+
+t3 = Sys.time()
+
+t3-t2
 
 total_NLL = test_path_samples$NLL_Pos + test_path_samples$NLL_Vel + test_path_samples$NLL_Prior
 
 path_samples_plotting = data.frame(t = rep(seq(min(data$t),max(data$t), length.out = N_quad), N_samples), X1 = c(t(test_path_samples$Path_X_Samples)), X2 = c(t(test_path_samples$Path_Y_Samples)), Sample = rep(1:N_samples, each = N_quad))
 
-ggplot(data = path_samples_plotting, aes(x = X1, y = X2, group = Sample)) + geom_path(alpha = 0.2)
+ggplot(data = path_samples_plotting, aes(x = t, y = X1, group = Sample)) + geom_path(alpha = 0.2)
 
 ?prcomp
 
