@@ -1070,7 +1070,7 @@ total_NLL = test_path_samples$NLL_Pos + test_path_samples$NLL_Vel + test_path_sa
 
 path_samples_plotting = data.frame(t = rep(seq(min(data$t),max(data$t), length.out = N_quad), N_samples), X1 = c(t(test_path_samples$Path_X_Samples)), X2 = c(t(test_path_samples$Path_Y_Samples)), Sample = rep(1:N_samples, each = N_quad))
 
-ggplot(data = path_samples_plotting, aes(x = t, y = X1, group = Sample)) + geom_path(alpha = 0.2)
+ggplot(data = path_samples_plotting, aes(x = X2, y = X1, group = Sample)) + geom_path(alpha = 0.2)
 
 ?prcomp
 
