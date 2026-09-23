@@ -196,6 +196,110 @@ evaluate2DCosine_fast = function(beta_mat, pos_mat, border){
   return(Phi %*% beta_mat)
 }
 
+evaluate2DCosine_part_x_fast = function(beta_mat, pos_mat, border){
+  Lx = border[3] - border[1]
+  Ly = border[4] - border[2]
+
+  M = sqrt(nrow(beta_mat))-1
+
+  omega = (0:M)*pi
+
+  # 1. Compute all spatial frequencies
+  X_scaled = (pos_mat[,1] - border[1]) / Lx
+  Y_scaled = (pos_mat[,2] - border[2]) / Ly
+
+  # d/dx(cos) -> -sin for X, Y remains cos
+  sin_X = -sin(outer(X_scaled, omega))
+  cos_Y = cos(outer(Y_scaled, omega))
+
+  # 2. Apply scaling: sqrt(2) logic AND the chain rule for X (omega / Lx)
+  c_scale = c(1, rep(sqrt(2), M))
+  scale_vec_X = c_scale * (omega / Lx)
+
+  sin_X = sweep(sin_X, 2, scale_vec_X, `*`)
+  cos_Y = sweep(cos_Y, 2, c_scale, `*`)
+
+  # 3. Create the Phi combinations
+  idx_i = rep(1:(M+1), times = M+1)
+  idx_j = rep(1:(M+1), each = M+1)
+
+  Phi_dx = sin_X[, idx_i] * cos_Y[, idx_j]
+
+  # Matrix multiply
+  return(Phi_dx %*% beta_mat)
+}
+
+evaluate2DCosine_part_y_fast = function(beta_mat, pos_mat, border){
+  Lx = border[3] - border[1]
+  Ly = border[4] - border[2]
+
+  M = sqrt(nrow(beta_mat))-1
+
+  omega = (0:M)*pi
+
+  # 1. Compute all spatial frequencies
+  X_scaled = (pos_mat[,1] - border[1]) / Lx
+  Y_scaled = (pos_mat[,2] - border[2]) / Ly
+
+  # X remains cos, d/dy(cos) -> -sin for Y
+  cos_X = cos(outer(X_scaled, omega))
+  sin_Y = -sin(outer(Y_scaled, omega))
+
+  # 2. Apply scaling: sqrt(2) logic AND the chain rule for Y (omega / Ly)
+  c_scale = c(1, rep(sqrt(2), M))
+  scale_vec_Y = c_scale * (omega / Ly)
+
+  cos_X = sweep(cos_X, 2, c_scale, `*`)
+  sin_Y = sweep(sin_Y, 2, scale_vec_Y, `*`)
+
+  # 3. Create the Phi combinations
+  idx_i = rep(1:(M+1), times = M+1)
+  idx_j = rep(1:(M+1), each = M+1)
+
+  Phi_dy = cos_X[, idx_i] * sin_Y[, idx_j]
+
+  # Matrix multiply
+  return(Phi_dy %*% beta_mat)
+}
+
+evaluate2DCosine_part_beta_fast = function(beta_mat, pos_mat, border){
+  Lx = border[3] - border[1]
+  Ly = border[4] - border[2]
+
+  P = nrow(beta_mat) # Coefficients per surface
+  K = ncol(beta_mat) # Number of surfaces
+
+  M_degree = sqrt(P) - 1
+  omega = (0:M_degree)*pi
+
+  # 1. Compute spatial frequencies
+  X_scaled = (pos_mat[,1] - border[1]) / Lx
+  Y_scaled = (pos_mat[,2] - border[2]) / Ly
+
+  cos_X = cos(outer(X_scaled, omega))
+  cos_Y = cos(outer(Y_scaled, omega))
+
+  # 2. Apply scaling
+  scale_vec = c(1, rep(sqrt(2), M_degree))
+  cos_X = sweep(cos_X, 2, scale_vec, `*`)
+  cos_Y = sweep(cos_Y, 2, scale_vec, `*`)
+
+  # 3. Create Phi (Dimensions: N x P)
+  idx_i = rep(1:(M_degree+1), times = M_degree+1)
+  idx_j = rep(1:(M_degree+1), each = M_degree+1)
+  Phi = cos_X[, idx_i] * cos_Y[, idx_j]
+
+  return(Phi)
+}
+
+pos_mat = expand.grid(seq(-2,2,length.out=10), seq(-2,2,length.out=10))
+beta_mat = true_beta_mat
+border = c(-2,-2,2,2)
+
+sqrt(2)*cos(pi*(pos_mat[,1]+2)/4) == test[,2]
+
+test = evaluate2DCosine_part_beta_fast(beta_mat, pos_mat, border)
+
 TrajWeightedBaseVectorFields_2D_Cosine = function(pos_t_mat, beta_mat, baseVectorFields_Vec, border){
 
 
@@ -233,6 +337,123 @@ baseVectorFields_Vec = function(pos_t_mat){
   f2y = pos_t_mat[,3] / c
 
   cbind(f1x,f2x, f1y, f2y)
+
+}
+
+baseVectorFields_Jacobian_Vec = function(pos_t_mat){
+
+  x = pos_t_mat[,2]
+  y = pos_t_mat[,3]
+
+  c = rowSums(pos_t_mat[,c(2,3)]^2)^(3/2)
+
+  part_x_f1x = -(x*y) / c
+  part_y_f1x = (x^2) / c
+
+  part_x_f1y = -(y^2) / c
+  part_y_f1y = (x*y) / c
+
+  part_x_f2x = (y^2) / c
+  part_y_f2x = (x*y) / c
+
+  part_x_f2y = -(x*y) / c
+  part_y_f2y = (x^2) / c
+
+  cbind(part_x_f1x, part_y_f1x, part_x_f1y, part_y_f1y, part_x_f2x, part_y_f2x, part_x_f2y, part_y_f2y)
+
+}
+
+calculate_Jacobian_f_wrt_y = function(pos_t_mat, beta_mat, border){
+
+  traj = exp(evaluate2DCosine_fast(beta_mat, pos_mat, border))
+  traj_part_x = traj*evaluate2DCosine_part_x_fast(beta_mat, pos_mat, border)
+  traj_part_y = traj*evaluate2DCosine_part_y_fast(beta_mat, pos_mat, border)
+  VF = baseVectorFields_Vec(pos_t_mat)
+  VF_part = baseVectorFields_Jacobian_Vec(pos_t_mat)
+
+  T1 = traj[,1]
+  T2 = traj[,2]
+
+  T1_part_x = traj_part_x[,1]
+  T1_part_y = traj_part_y[,1]
+
+  T2_part_x = traj_part_x[,2]
+  T2_part_x = traj_part_y[,2]
+
+  VF1_x = VF[,1]
+  VF2_x = VF[,2]
+  VF1_y = VF[,3]
+  VF2_y = VF[,4]
+
+  VF1_x_part_x = VF_part[,1]
+  VF1_x_part_y = VF_part[,2]
+  VF1_y_part_x = VF_part[,3]
+  VF1_y_part_y = VF_part[,4]
+  VF2_x_part_x = VF_part[,5]
+  VF2_x_part_y = VF_part[,6]
+  VF2_y_part_x = VF_part[,7]
+  VF2_y_part_y = VF_part[,8]
+
+  part_x_dx = T1_part_x * VF1_x + T1 * VF1_x_part_x + T2_part_x * VF2_x + T2 * VF2_x_part_x
+  part_y_dx = T1_part_y * VF1_x + T1 * VF1_x_part_y + T2_part_y * VF2_x + T2 * VF2_x_part_y
+  part_x_dy = T1_part_x * VF1_y + T1 * VF1_y_part_x + T2_part_x * VF2_y + T2 * VF2_y_part_x
+  part_y_dy = T1_part_y * VF1_y + T1 * VF1_y_part_y + T2_part_y * VF2_y + T2 * VF2_y_part_y
+
+
+  J_arr = array(dim(2,2,nrow(pos_t_mat)))
+
+  J_arr[1,1,] = part_x_dx
+  J_arr[1,2,] = part_y_dx
+  J_arr[2,1,] = part_x_dy
+  J_arr[2,2,] = part_y_dy
+
+  J_arr
+
+}
+
+calculate_Jacobian_f_wrt_beta = function(pos_t_mat, beta_mat, border){
+
+  traj = exp(evaluate2DCosine_fast(beta_mat, pos_mat, border))
+  log_traj_part_beta = evaluate2DCosine_part_beta_fast(beta_mat, pos_mat, border)
+  VF = baseVectorFields_Vec(pos_t_mat)
+
+  T1 = traj[,1]
+  T2 = traj[,2]
+
+  T1_part_x = traj_part_x[,1]
+  T1_part_y = traj_part_y[,1]
+
+  T2_part_x = traj_part_x[,2]
+  T2_part_x = traj_part_y[,2]
+
+  VF1_x = VF[,1]
+  VF2_x = VF[,2]
+  VF1_y = VF[,3]
+  VF2_y = VF[,4]
+
+  VF1_x_part_x = VF_part[,1]
+  VF1_x_part_y = VF_part[,2]
+  VF1_y_part_x = VF_part[,3]
+  VF1_y_part_y = VF_part[,4]
+  VF2_x_part_x = VF_part[,5]
+  VF2_x_part_y = VF_part[,6]
+  VF2_y_part_x = VF_part[,7]
+  VF2_y_part_y = VF_part[,8]
+
+  part_x_dx = T1_part_x * VF1_x + T1 * VF1_x_part_x + T2_part_x * VF2_x + T2 * VF2_x_part_x
+  part_y_dx = T1_part_y * VF1_x + T1 * VF1_x_part_y + T2_part_y * VF2_x + T2 * VF2_x_part_y
+  part_x_dy = T1_part_x * VF1_y + T1 * VF1_y_part_x + T2_part_x * VF2_y + T2 * VF2_y_part_x
+  part_y_dy = T1_part_y * VF1_y + T1 * VF1_y_part_y + T2_part_y * VF2_y + T2 * VF2_y_part_y
+
+
+  J_arr = array(dim(2,2,nrow(pos_t_mat)))
+
+  J_arr[1,1,] = part_x_dx
+  J_arr[1,2,] = part_y_dx
+  J_arr[2,1,] = part_x_dy
+  J_arr[2,2,] = part_y_dy
+
+  J_arr
 
 }
 
@@ -632,6 +853,8 @@ run_rMAP_Trajectory_Multithread = function(N_samples, sim_data_list, pos_sd, vel
 
 
 ## Attempting at Metropolis-Hastings
+
+f = function()
 
 get_starting_mode_trajectories = function(traj_samples, PC_importance_threshold, max_clusters){
 
