@@ -5,6 +5,7 @@ library(ggplot2)
 library(minqa)
 library(nloptr)
 library(mvtnorm)
+library(deSolve)
 
 
 evaluateHSGP = function(z, k, l, M, border, curPos){
@@ -163,7 +164,13 @@ samplePhySpaceParticles = function(n_particles, startTime, n_obs, border, border
 
 }
 
+
+
 evaluate2DCosine_fast = function(beta_mat, pos_mat, border){
+
+  if(is.null(dim(pos_mat))) {
+    pos_mat = matrix(pos_mat, nrow = 1, ncol = 2)
+  }
 
   Lx = border[3] - border[1]
   Ly = border[4] - border[2]
@@ -197,6 +204,11 @@ evaluate2DCosine_fast = function(beta_mat, pos_mat, border){
 }
 
 evaluate2DCosine_part_x_fast = function(beta_mat, pos_mat, border){
+
+  if(is.null(dim(pos_mat))) {
+    pos_mat = matrix(pos_mat, nrow = 1, ncol = 2)
+  }
+
   Lx = border[3] - border[1]
   Ly = border[4] - border[2]
 
@@ -230,6 +242,11 @@ evaluate2DCosine_part_x_fast = function(beta_mat, pos_mat, border){
 }
 
 evaluate2DCosine_part_y_fast = function(beta_mat, pos_mat, border){
+
+  if(is.null(dim(pos_mat))) {
+    pos_mat = matrix(pos_mat, nrow = 1, ncol = 2)
+  }
+
   Lx = border[3] - border[1]
   Ly = border[4] - border[2]
 
@@ -263,6 +280,11 @@ evaluate2DCosine_part_y_fast = function(beta_mat, pos_mat, border){
 }
 
 evaluate2DCosine_part_beta_fast = function(beta_mat, pos_mat, border){
+
+  if(is.null(dim(pos_mat))) {
+    pos_mat = matrix(pos_mat, nrow = 1, ncol = 2)
+  }
+
   Lx = border[3] - border[1]
   Ly = border[4] - border[2]
 
@@ -300,13 +322,18 @@ sqrt(2)*cos(pi*(pos_mat[,1]+2)/4) == test[,2]
 
 test = evaluate2DCosine_part_beta_fast(beta_mat, pos_mat, border)
 
+pos_t_mat = curPos
+
 TrajWeightedBaseVectorFields_2D_Cosine = function(pos_t_mat, beta_mat, baseVectorFields_Vec, border){
 
+  if(is.null(dim(pos_t_mat))) {
+    pos_t_mat = matrix(pos_t_mat, nrow = 1, ncol = 3)
+  }
 
   log_Traj = evaluate2DCosine_fast(beta_mat = beta_mat, pos_mat = pos_t_mat[,c(2,3)], border = border)
   log_Traj_mat = cbind(log_Traj, log_Traj)
 
-  baseVF = baseVectorFields_Vec(pos_t_mat)
+  baseVF = baseVectorFields_Vec(pos_t_mat[,])
 
   Weighted_Vel = exp(log_Traj_mat) * baseVF
 
@@ -328,7 +355,14 @@ baseVectorFields = function(t, curPos){
 
 baseVectorFields_Vec = function(pos_t_mat){
 
-  c = sqrt(rowSums(pos_t_mat[,c(2,3)]^2))
+  if(is.null(dim(pos_t_mat))) {
+    pos_t_mat = matrix(pos_t_mat, nrow = 1, ncol = 3)
+    pos_mat = matrix(pos_t_mat[2:3], nrow = 1, ncol = 2)
+  } else{
+    pos_mat = pos_t_mat[,c(2,3)]
+  }
+
+  c = sqrt(rowSums(pos_mat^2))
 
   f1x = pos_t_mat[,3] / c
   f1y = -1*pos_t_mat[,2] / c
@@ -342,10 +376,17 @@ baseVectorFields_Vec = function(pos_t_mat){
 
 baseVectorFields_Jacobian_Vec = function(pos_t_mat){
 
+  if(is.null(dim(pos_t_mat))) {
+    pos_t_mat = matrix(pos_t_mat, nrow = 1, ncol = 3)
+    pos_mat = matrix(pos_t_mat[2:3], nrow = 1, ncol = 2)
+  } else{
+    pos_mat = pos_t_mat[,c(2,3)]
+  }
+
   x = pos_t_mat[,2]
   y = pos_t_mat[,3]
 
-  c = rowSums(pos_t_mat[,c(2,3)]^2)^(3/2)
+  c = rowSums(pos_mat^2)^(3/2)
 
   part_x_f1x = -(x*y) / c
   part_y_f1x = (x^2) / c
@@ -365,6 +406,12 @@ baseVectorFields_Jacobian_Vec = function(pos_t_mat){
 
 calculate_Jacobian_f_wrt_y = function(pos_t_mat, beta_mat, border){
 
+  if(is.null(dim(pos_t_mat))) {
+    pos_t_mat = matrix(pos_t_mat, nrow = 1, ncol = 2)
+  }
+
+  pos_mat = pos_t_mat[,2:3]
+
   traj = exp(evaluate2DCosine_fast(beta_mat, pos_mat, border))
   traj_part_x = traj*evaluate2DCosine_part_x_fast(beta_mat, pos_mat, border)
   traj_part_y = traj*evaluate2DCosine_part_y_fast(beta_mat, pos_mat, border)
@@ -378,7 +425,7 @@ calculate_Jacobian_f_wrt_y = function(pos_t_mat, beta_mat, border){
   T1_part_y = traj_part_y[,1]
 
   T2_part_x = traj_part_x[,2]
-  T2_part_x = traj_part_y[,2]
+  T2_part_y = traj_part_y[,2]
 
   VF1_x = VF[,1]
   VF2_x = VF[,2]
@@ -400,7 +447,7 @@ calculate_Jacobian_f_wrt_y = function(pos_t_mat, beta_mat, border){
   part_y_dy = T1_part_y * VF1_y + T1 * VF1_y_part_y + T2_part_y * VF2_y + T2 * VF2_y_part_y
 
 
-  J_arr = array(dim(2,2,nrow(pos_t_mat)))
+  J_arr = array(dim = c(2,2,nrow(pos_t_mat)))
 
   J_arr[1,1,] = part_x_dx
   J_arr[1,2,] = part_y_dx
@@ -411,7 +458,15 @@ calculate_Jacobian_f_wrt_y = function(pos_t_mat, beta_mat, border){
 
 }
 
-calculate_Jacobian_f_wrt_beta = function(pos_t_mat, beta_mat, border){
+calculate_Gradient_f_wrt_beta = function(pos_t_mat, beta_mat, border){
+
+  if(is.null(dim(pos_t_mat))) {
+    pos_t_mat = matrix(pos_t_mat, nrow = 1, ncol = 3)
+  }
+
+  pos_mat = pos_t_mat[,2:3]
+
+  M = sqrt(nrow(beta_mat))
 
   traj = exp(evaluate2DCosine_fast(beta_mat, pos_mat, border))
   log_traj_part_beta = evaluate2DCosine_part_beta_fast(beta_mat, pos_mat, border)
@@ -420,40 +475,183 @@ calculate_Jacobian_f_wrt_beta = function(pos_t_mat, beta_mat, border){
   T1 = traj[,1]
   T2 = traj[,2]
 
-  T1_part_x = traj_part_x[,1]
-  T1_part_y = traj_part_y[,1]
-
-  T2_part_x = traj_part_x[,2]
-  T2_part_x = traj_part_y[,2]
-
   VF1_x = VF[,1]
   VF2_x = VF[,2]
   VF1_y = VF[,3]
   VF2_y = VF[,4]
 
-  VF1_x_part_x = VF_part[,1]
-  VF1_x_part_y = VF_part[,2]
-  VF1_y_part_x = VF_part[,3]
-  VF1_y_part_y = VF_part[,4]
-  VF2_x_part_x = VF_part[,5]
-  VF2_x_part_y = VF_part[,6]
-  VF2_y_part_x = VF_part[,7]
-  VF2_y_part_y = VF_part[,8]
+  J_arr = array(dim = c(2*M^2,2, nrow(pos_t_mat)))
 
-  part_x_dx = T1_part_x * VF1_x + T1 * VF1_x_part_x + T2_part_x * VF2_x + T2 * VF2_x_part_x
-  part_y_dx = T1_part_y * VF1_x + T1 * VF1_x_part_y + T2_part_y * VF2_x + T2 * VF2_x_part_y
-  part_x_dy = T1_part_x * VF1_y + T1 * VF1_y_part_x + T2_part_x * VF2_y + T2 * VF2_y_part_x
-  part_y_dy = T1_part_y * VF1_y + T1 * VF1_y_part_y + T2_part_y * VF2_y + T2 * VF2_y_part_y
+  for(i in 1:(M^2)){
 
+    J_arr[i,1,] = VF1_x * T1 * log_traj_part_beta[i,]
+    J_arr[i,2,] = VF1_y * T1 * log_traj_part_beta[i,]
 
-  J_arr = array(dim(2,2,nrow(pos_t_mat)))
+    J_arr[i+(M^2),1,] = VF2_x * T2 * log_traj_part_beta[i,]
+    J_arr[i+(M^2),2,] = VF2_y * T2 * log_traj_part_beta[i,]
 
-  J_arr[1,1,] = part_x_dx
-  J_arr[1,2,] = part_y_dx
-  J_arr[2,1,] = part_x_dy
-  J_arr[2,2,] = part_y_dy
+  }
 
   J_arr
+
+}
+
+augmented_ode <- function(t, state_vector, beta_mat, border, baseVectorFields_Vec) {
+  N <- length(beta)
+
+  # 1. Unpack the 2D spatial state
+  curPos <- state_vector[1:2]
+
+  # 2. Unpack g and reshape back into a 2 x N matrix
+  # R fills and flattens matrices column-wise by default
+  g_flat <- state_vector[3:length(state_vector)]
+  g <- matrix(g_flat, nrow = 2, ncol = N)
+
+  # 3. Get your position-dependent matrices
+  A <- calculate_Jacobian_f_wrt_y(pos_t_mat = c(t, curPos), beta_mat = beta_mat, border = border) # 2x2
+  B <- calculate_Gradient_f_wrt_beta(pos_t_mat = c(t, curPos), beta_mat = beta_mat, border = border) # N x 2
+
+  # 4. Calculate derivatives
+  dy_dt <- TrajWeightedBaseVectorFields_2D_Cosine(pos_t_mat = c(t, curPos), beta_mat = beta_mat, baseVectorFields_Vec = baseVectorFields_Vec, border = border)
+
+  # Matrix multiplication in R requires %*%
+  # Transpose B using t() to make it 2xN to match (A %*% g)
+  dg_dt <- (A %*% g) + t(B)
+
+  # 5. Flatten dg_dt using as.vector() and concatenate
+  # deSolve requires returning a list containing a single flat vector
+  return(list(c(dy_dt, as.vector(dg_dt))))
+}
+
+start_t_pos = sim_data_list[[1]][1,]
+
+t_0 = 0
+end_t = sim_data_list[[1]][2,1]
+N_prop_steps = 1000
+
+calculate_part_path_part_beta = function(beta_mat, border, baseVectorFields_Vec, start_t_pos, end_t, N_prop_steps){
+
+  M = sqrt(nrow(beta_mat))
+
+  y_0 = as.numeric(start_t_pos[2:3])
+  t_0 = as.numeric(start_t_pos[1])
+  g_0 = matrix(rep(0, 2*(2*M^2)), nrow = 2)
+
+  t_step <- (end_t - t_0) / N_prop_steps
+  curPos = as.numeric(start_t_pos)
+
+  pos_mat_k1 = matrix(rep(0, 3*N_prop_steps), nrow = N_prop_steps, ncol = 3)
+  pos_mat_k2 = matrix(rep(0, 3*N_prop_steps), nrow = N_prop_steps, ncol = 3)
+  pos_mat_k3 = matrix(rep(0, 3*N_prop_steps), nrow = N_prop_steps, ncol = 3)
+  pos_mat_k4 = matrix(rep(0, 3*N_prop_steps), nrow = N_prop_steps, ncol = 3)
+
+  for(j in 1:N_prop_steps) {
+
+    pos_mat_k1[j,] = curPos
+
+    k1 <- TrajWeightedBaseVectorFields_2D_Cosine(
+      pos_t_mat = curPos, beta_mat = beta_mat, baseVectorFields_Vec = baseVectorFields_Vec, border = border
+    )
+
+    pos_mat_k2[j,] <- curPos
+    pos_mat_k2[j, 1] <- pos_mat_k2[j, 1] + t_step / 2
+    pos_mat_k2[j, 2] <- pos_mat_k2[j, 2] + k1[, 1] * (t_step / 2)
+    pos_mat_k2[j, 3] <- pos_mat_k2[j, 3] + k1[, 2] * (t_step / 2)
+
+    k2 <- TrajWeightedBaseVectorFields_2D_Cosine(
+      pos_t_mat = pos_mat_k2[j,], beta_mat = beta_mat, baseVectorFields_Vec = baseVectorFields_Vec, border = border
+    )
+
+    pos_mat_k3[j,] <- curPos
+    pos_mat_k3[j, 1] <- pos_mat_k3[j, 1] + t_step / 2
+    pos_mat_k3[j, 2] <- pos_mat_k3[j, 2] + k2[, 1] * (t_step / 2)
+    pos_mat_k3[j, 3] <- pos_mat_k3[j, 3] + k2[, 2] * (t_step / 2)
+
+    k3 <- TrajWeightedBaseVectorFields_2D_Cosine(
+      pos_t_mat = pos_mat_k3[j,], beta_mat = beta_mat, baseVectorFields_Vec = baseVectorFields_Vec, border = border
+    )
+
+    pos_mat_k4[j,] <- curPos
+    pos_mat_k4[j, 1] <- pos_mat_k4[j, 1] + t_step
+    pos_mat_k4[j, 2] <- pos_mat_k4[j, 2] + k3[, 1] * t_step
+    pos_mat_k4[j, 3] <- pos_mat_k4[j, 3] + k3[, 2] * t_step
+
+    k4 <- TrajWeightedBaseVectorFields_2D_Cosine(
+      pos_t_mat = pos_mat_k4[j,], beta_mat = beta_mat, baseVectorFields_Vec = baseVectorFields_Vec, border = border
+    )
+
+    rk4_drift_1 <- (k1[, 1] + 2 * k2[, 1] + 2 * k3[, 1] + k4[, 1]) / 6
+    rk4_drift_2 <- (k1[, 2] + 2 * k2[, 2] + 2 * k3[, 2] + k4[, 2]) / 6
+
+    curPos[1] <- curPos[1] + t_step
+    curPos[2] <- curPos[2] + rk4_drift_1 * t_step
+    curPos[3] <- curPos[3] + rk4_drift_2 * t_step
+  }
+
+  J_f_array_k1 = calculate_Jacobian_f_wrt_y(pos_t_mat = pos_mat_k1, beta_mat = beta_mat, border = border)
+  J_f_array_k2 = calculate_Jacobian_f_wrt_y(pos_t_mat = pos_mat_k2, beta_mat = beta_mat, border = border)
+  J_f_array_k3 = calculate_Jacobian_f_wrt_y(pos_t_mat = pos_mat_k3, beta_mat = beta_mat, border = border)
+  J_f_array_k4 = calculate_Jacobian_f_wrt_y(pos_t_mat = pos_mat_k4, beta_mat = beta_mat, border = border)
+
+  grad_f_beta_k1 = calculate_Gradient_f_wrt_beta(pos_t_mat = pos_mat_k1, beta_mat = beta_mat, border = border)
+  grad_f_beta_k2 = calculate_Gradient_f_wrt_beta(pos_t_mat = pos_mat_k2, beta_mat = beta_mat, border = border)
+  grad_f_beta_k3 = calculate_Gradient_f_wrt_beta(pos_t_mat = pos_mat_k3, beta_mat = beta_mat, border = border)
+  grad_f_beta_k4 = calculate_Gradient_f_wrt_beta(pos_t_mat = pos_mat_k4, beta_mat = beta_mat, border = border)
+
+  cur_g = g_0
+
+  for(i in 1:N_prop_steps) {
+
+    # ---------------------------------------------------------
+    # RK4 Substep 1 (k1 for g)
+    # ---------------------------------------------------------
+    A1 <- J_f_array_k1[,,i]               # 2x2 matrix
+    B1 <- t(grad_f_beta_k1[,,i])          # Transpose to 2xN matrix
+
+    k1_g <- A1 %*% cur_g + B1             # Derivative at k1
+
+    # ---------------------------------------------------------
+    # RK4 Substep 2 (k2 for g)
+    # ---------------------------------------------------------
+    # Propagate g forward by half a step using k1_g
+    g2 <- cur_g + k1_g * (t_step / 2)
+
+    A2 <- J_f_array_k2[,,i]
+    B2 <- t(grad_f_beta_k2[,,i])
+
+    k2_g <- A2 %*% g2 + B2                # Derivative at k2
+
+    # ---------------------------------------------------------
+    # RK4 Substep 3 (k3 for g)
+    # ---------------------------------------------------------
+    # Propagate g forward by half a step using k2_g
+    g3 <- cur_g + k2_g * (t_step / 2)
+
+    A3 <- J_f_array_k3[,,i]
+    B3 <- t(grad_f_beta_k3[,,i])
+
+    k3_g <- A3 %*% g3 + B3                # Derivative at k3
+
+    # ---------------------------------------------------------
+    # RK4 Substep 4 (k4 for g)
+    # ---------------------------------------------------------
+    # Propagate g forward by a FULL step using k3_g
+    g4 <- cur_g + k3_g * t_step
+
+    A4 <- J_f_array_k4[,,i]
+    B4 <- t(grad_f_beta_k4[,,i])
+
+    k4_g <- A4 %*% g4 + B4                # Derivative at k4
+
+    # ---------------------------------------------------------
+    # Final RK4 Update for cur_g
+    # ---------------------------------------------------------
+    # Now we properly combine them and ADD to the previous cur_g
+    cur_g <- cur_g + (t_step / 6) * (k1_g + 2*k2_g + 2*k3_g + k4_g)
+
+  }
+
+  return(cur_g)
 
 }
 
