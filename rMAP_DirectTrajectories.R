@@ -496,6 +496,8 @@ beta_mat_true
 
 beta_mat = cbind(c(real_traj_test_1$Beta1Posterior[62,], rep(0,3)), c(real_traj_test_1$Beta2Posterior[62,], rep(0,3)))
 
+beta_mat = cbind(real_traj_test_1$Beta1Posterior[15,], real_traj_test_1$Beta2Posterior[15,])
+
 calculate_part_path_part_beta = function(beta_mat, border, baseVectorFields_Vec, start_t_pos, end_t, N_prop_steps){
 
   M = sqrt(nrow(beta_mat))
@@ -637,8 +639,10 @@ calculate_part_path_part_beta = function(beta_mat, border, baseVectorFields_Vec,
 
 start_t_pos_mat
 
-beta_mat = cbind(c(real_traj_test_1$Beta1Posterior[62,], rep(0,3)), c(real_traj_test_1$Beta2Posterior[62,], rep(0,3)))
+beta_mat_1 = cbind(c(real_traj_test_1$Beta1Posterior[20,], rep(0,3)), c(real_traj_test_1$Beta2Posterior[20,], rep(0,3)))
+beta_mat_2 = cbind(c(real_traj_test_1$Beta1Posterior[62,], rep(0,3)), c(real_traj_test_1$Beta2Posterior[62,], rep(0,3)))
 beta_mat = cbind(c(0,0,0,0), c(0,0,0,0))
+prior_beta_sigma_1 = diag(rep(1000,4))
 
 beta_mat = beta_mat_true
 
@@ -684,20 +688,33 @@ calculate_importance_weight = function(beta_mat, border, baseVectorFields_Vec, s
 
 t1 = Sys.time()
 
-log_importance = calculate_importance_weight(beta_mat_fake, border, baseVectorFields_Vec, start_t_pos_mat, end_t_pos_mat, N_prop_steps, pos_sd, prior_beta_sigma)
+log_importance = calculate_importance_weight(beta_mat_true, border, baseVectorFields_Vec, start_t_pos_mat, end_t_pos_mat, N_prop_steps, pos_sd, prior_beta_sigma)
 
 t2 = Sys.time()
 
-log_weight <- calculate_log_importance_cpp(
-  beta = c(beta_mat_true), # Pass the flattened vector
-  M_sq = nrow(beta_mat_true),
+log_weight_1 <- calculate_log_importance_cpp(
+  beta = c(beta_mat_1), # Pass the flattened vector
+  M_sq = nrow(beta_mat_1),
   start_t_pos_mat = as.matrix(start_t_pos_mat),
   end_t_pos_true_mat = as.matrix(end_t_pos_mat),
   t_steps = end_t_pos_mat[,1] - start_t_pos_mat[,1], # Supply dt array directly
   N_prop_steps = N_prop_steps,
   border = border,
   pos_sd = pos_sd,
-  prior_beta_sigma = prior_precision_mat,
+  prior_beta_sigma = prior_beta_sigma_1,
+  n_threads = 32 # Set to your 32-core capacity!
+)
+
+log_weight_2 <- calculate_log_importance_cpp(
+  beta = c(beta_mat_2), # Pass the flattened vector
+  M_sq = nrow(beta_mat_2),
+  start_t_pos_mat = as.matrix(start_t_pos_mat),
+  end_t_pos_true_mat = as.matrix(end_t_pos_mat),
+  t_steps = end_t_pos_mat[,1] - start_t_pos_mat[,1], # Supply dt array directly
+  N_prop_steps = N_prop_steps,
+  border = border,
+  pos_sd = pos_sd,
+  prior_beta_sigma = prior_beta_sigma_1,
   n_threads = 32 # Set to your 32-core capacity!
 )
 
@@ -914,11 +931,11 @@ find_one_rMAP_Trajectory_Multithread = function(sim_data_list, pos_sd = 0.001, v
 
   if(M == 1){
 
-    prior_beta_sigma = prior_k^2 * spec_den^2
+    prior_beta_sigma = as.matrix(prior_k^2 * spec_den^2)
 
   } else{
 
-    prior_beta_sigma = diag(c(prior_k^2 * diag((spec_den)) %*% matrix(rep(1,M^2), nrow = M) %*% diag((spec_den))))
+    prior_beta_sigma = as.matrix(diag(c(prior_k^2 * diag((spec_den)) %*% matrix(rep(1,M^2), nrow = M) %*% diag((spec_den)))))
 
   }
 
@@ -940,6 +957,10 @@ find_one_rMAP_Trajectory_Multithread = function(sim_data_list, pos_sd = 0.001, v
   start_beta_vec <- as.numeric(start_beta)
 
   # Good catch on the prior! Pre-calculate the precision matrix (inverse of covariance) here
+
+  prior_beta_sigma = as.matrix(10)
+
+
   prior_precision_mat <- ginv(as.matrix(prior_beta_sigma))
 
   eval_counter <- 0
@@ -1019,19 +1040,19 @@ find_one_rMAP_Trajectory_Multithread = function(sim_data_list, pos_sd = 0.001, v
   log_importance = calculate_log_importance_cpp(
     beta = opt_result$solution,
     M_sq = M^2,
-    start_t_pos_mat = aug_starts_mat,
+    start_t_pos_mat = data_starts_mat,
     end_t_pos_true_mat = data_ends_mat,
     t_steps = data_ends_mat[,1] - data_starts_mat[,1],
-    N_prop_steps = N_prop_steps,
+    N_prop_steps = floor(((1 + sqrt(5)) / 2) * N_prop_steps),
     border = border,
     pos_sd = pos_sd,
-    prior_beta_sigma = prior_precision_mat,
+    prior_beta_sigma = prior_beta_sigma,
     n_threads = n_threads
   )
 
   # Using "FINAL" so it stands out from the regular 100-step updates
   cat(sprintf("\nFINAL: Iter: %4d | Loss: %10.4f | Beta: [%s] | Log Importance: %.4f\n",
-              opt_result$iterations, opt_result$objective, final_beta_str, log_importance))
+              opt_result$iterations, post_loss, final_beta_str, log_importance))
 
   cat("\n")
 
@@ -1690,7 +1711,7 @@ t1 = Sys.time()
 real_traj_test_1 = run_rMAP_Trajectory_Multithread(N_samples = 100, sim_data_list = sim_data_list,
                                        pos_sd = 0.001, vel_sd = 0, M = 1, prior_k = 0.35,
                                        prior_l = 1, baseVectorFields_Vec = baseVectorFields_Vec,
-                                       border = c(-2,-2,2,2), N_prop_steps = 1000, traj_eval_grid = traj_eval_grid, print_every = 50, n_threads = 32)
+                                       border = c(-2,-2,2,2), N_prop_steps = 5000, traj_eval_grid = traj_eval_grid, print_every = 50, n_threads = 32)
 
 t2 = Sys.time()
 
@@ -1698,20 +1719,43 @@ t2-t1
 
 max_log_w = max(real_traj_test_1$LogImportanceWeights)
 
+
 log_w_scaled = real_traj_test_1$LogImportanceWeights - max_log_w
 
 importance_weights = exp(log_w_scaled) / sum(exp(log_w_scaled))
 
 which.max(importance_weights)
-which.min(real_traj_test_1$PosteriorNLL)
+which.max(real_traj_test_1$PosteriorNLL)
 
-exp(c(real_traj_test_1$Beta1Posterior[20,], real_traj_test_1$Beta2Posterior[20,]))
+log(importance_weights[38])
+
+W_NLL_df = data.frame(x = log(importance_weights), y = log(real_traj_test_1$PosteriorNLL))
+
+plot(log(importance_weights), log(real_traj_test_1$PosteriorNLL))
+abline(a=0, b=1)
+
+lm(y ~ x, data = W_NLL_df[!is.infinite(W_NLL_df$x),])
+
+real_traj_test_1$LogImportanceWeights[44]
+real_traj_test_1$LogImportanceWeights[74]
+real_traj_test_1$LogImportanceWeights[79]
+
+
+
+exp(c(real_traj_test_1$Beta1Posterior[44,], real_traj_test_1$Beta2Posterior[44,]))
+exp(c(real_traj_test_1$Beta1Posterior[86,], real_traj_test_1$Beta2Posterior[86,]))
+
+exp(c(real_traj_test_1$Beta1Posterior[79,], real_traj_test_1$Beta2Posterior[79,]))
+
+
+(real_traj_test_1$Beta2Posterior[order(importance_weights, decreasing = T)])
+(real_traj_test_1$Beta1Posterior[order(importance_weights, decreasing = T)])
 
 real_traj_test_1$Traj1Posterior
 
 sample(exp(real_traj_test_1$Beta1Posterior)*9, size = 1000, replace = T, prob = importance_weights)
 
-sort(importance_weights)
+which(importance_weights == sort(importance_weights)[99])
 
 PostTraj1_Mean = rowMeans(real_traj_test_1$Traj1Posterior)
 PostTraj2_Mean = rowMeans(real_traj_test_1$Traj2Posterior)
@@ -1729,7 +1773,18 @@ hist(CI_traj_1[,2] - CI_traj_1[,1])
 hist(CI_traj_2[,2] - CI_traj_2[,1])
 
 
-ggplot() + geom_histogram(aes(x = (exp(real_traj_test_1$Beta1Posterior)*9)[exp(real_traj_test_1$Beta1Posterior)*9 < 20]), binwidth = 1/10)
+ggplot() + geom_histogram(aes(x = (exp(real_traj_test_1$Beta1Posterior)*9)[(exp(real_traj_test_1$Beta1Posterior)*9) < 20]), binwidth = 1) + xlab("Raw Samples for Number of Revolutions")
+ggplot() + geom_histogram(aes(x = real_traj_test_1$Beta2Posterior)) + xlab("Raw Samples for log(Trajectory) for Expanding Field")
+SIR_Rotations = sample(exp(real_traj_test_1$Beta1Posterior)*9, size = 10000, replace = T, prob = importance_weights)
+SIR_LogTraj2 = sample((real_traj_test_1$Beta2Posterior), size = 100000, replace = T, prob = importance_weights)
+max(SIR_Rotations)
+
+table(round(SIR_Rotations))
+
+ggplot() + geom_histogram(aes(x = SIR_Rotations), binwidth = 1) + xlab("SIR Samples for Number of Revolutions")
+ggplot() + geom_histogram(aes(x = SIR_LogTraj2)) + xlab("SIR Samples for log(Trajectory) for Expanding Field")
+
+sample(exp(real_traj_test_1$Beta1Posterior)*9, size = 1000, replace = T, prob = importance_weights)
 
 
 plot(exp(real_traj_test_1$Beta1Posterior)*9, real_traj_test_1$LogImportanceWeights)
@@ -1744,9 +1799,9 @@ colMeans(real_traj_test_1$Beta2Posterior)
 plot(exp(real_traj_test_1$Beta1Posterior)*9, exp(real_traj_test_1$Beta2Posterior))
 
 post_loss = rMAP_loss_cpp_multi(
-  beta = c(real_traj_test_1$Beta1Posterior[62,], real_traj_test_1$Beta2Posterior[62,]),
+  beta = c(real_traj_test_1$Beta1Posterior[15,], real_traj_test_1$Beta2Posterior[15,]),
   M_sq = M^2,
-  aug_data_starts = aug_starts_mat,
+  aug_data_starts = data_starts_mat,
   aug_data_ends = data_ends_mat,
   t_steps = t_steps_vec,
   rand_vel_1 = rand_vel_1_mat,
@@ -1757,6 +1812,8 @@ post_loss = rMAP_loss_cpp_multi(
   start_beta = start_beta_vec,
   n_threads = n_threads
 )
+
+real_traj_test_1$PosteriorNLL[15]
 
 M=1
 

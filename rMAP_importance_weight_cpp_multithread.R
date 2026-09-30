@@ -197,27 +197,40 @@ double calculate_log_importance_cpp(
     }
 
     // ---------------------------------------------------------
-    // FAST LINEAR ALGEBRA ALONG rMAP WEIGHT FORMULA
+    // FAST LINEAR ALGEBRA (NUMERICALLY STABLE)
     // ---------------------------------------------------------
 
-    // 1. Construct Block Diagonal Prior Covariance C in C++
+    // 1. Construct Block Diagonal Prior Covariance C
     arma::mat C = arma::zeros(N_params, N_params);
     C.submat(0, 0, M_sq - 1, M_sq - 1) = prior_beta_sigma;
     C.submat(M_sq, M_sq, N_params - 1, N_params - 1) = prior_beta_sigma;
 
-    double var_inv = 1.0 / (pos_sd * pos_sd);
+    double var = pos_sd * pos_sd;
+    double var_inv = 1.0 / var;
 
-    // 2. Scaled Misfit Vector (K)
-    arma::vec K = ((end_t_pos_prop - end_t_pos_true) + del_G * beta) * var_inv;
+    // 2. Unscaled Misfit Vector (v)
+    arma::vec v = (end_t_pos_prop - end_t_pos_true) + del_G * beta;
 
-    // 3. Precision Matrix Inverse (H)
-    arma::mat L_inv = var_inv * arma::eye(2 * N_data, 2 * N_data);
-    arma::mat H_inv = L_inv + (del_G * C * del_G.t()) * (var_inv * var_inv);
+    // 3. Construct S = L + G * C * G^T
+    arma::mat L = var * arma::eye(2 * N_data, 2 * N_data);
+    arma::mat S = L + del_G * C * del_G.t();
 
-    // inv_sympd is hyper-optimized for symmetric positive definite matrices
-    arma::mat H = arma::inv_sympd(H_inv);
+    // ENFORCE PERFECT SYMMETRY (copies upper triangle to lower triangle)
+    S = arma::symmatu(S);
+
+    // Bulletproof Inversion with Fallback
+    arma::mat S_inv;
+
+    // inv_sympd returns false instead of crashing if we pass the output matrix as an argument
+    bool inv_success = arma::inv_sympd(S_inv, S);
+
+    if (!inv_success) {
+        // Fallback to the generalized Moore-Penrose pseudo-inverse (uses SVD)
+        S_inv = arma::pinv(S);
+    }
 
     // 4. Gauss-Newton Jacobian Determinant (|J|)
+    // (This part is inherently stable via log_det)
     arma::mat J_approx = arma::eye(N_params, N_params) + (C * del_G.t() * del_G) * var_inv;
 
     double log_det_J;
@@ -225,7 +238,8 @@ double calculate_log_importance_cpp(
     arma::log_det(log_det_J, sign, J_approx);
 
     // 5. Final Log Importance Weight
-    arma::mat K_t_H_K = K.t() * H * K;
+    // v^T * S_inv * v is mathematically identical to K^T * H * K
+    arma::mat K_t_H_K = v.t() * S_inv * v;
     double log_importance = -0.5 * K_t_H_K(0,0) - 0.5 * log_det_J;
 
     return log_importance;
