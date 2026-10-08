@@ -958,9 +958,6 @@ find_one_rMAP_Trajectory_Multithread = function(sim_data_list, pos_sd = 0.001, v
 
   # Good catch on the prior! Pre-calculate the precision matrix (inverse of covariance) here
 
-  prior_beta_sigma = as.matrix(10)
-
-
   prior_precision_mat <- ginv(as.matrix(prior_beta_sigma))
 
   eval_counter <- 0
@@ -1678,15 +1675,16 @@ true_beta_mat_1 = cbind(true_beta_1_1, true_beta_1_2)
 sampledParticles = samplePhySpaceParticles(n_particles = 100, startTime = 0, n_obs = 20*100, border = c(-2,-2,2,2), borderBuffer = 0.2, baseVectorFields, trueHSGP,
                                            M = 2, t_step_mean = 0.1, vel_sigma = 0.001, pos_sigma = 0.001)
 
-sampledParticles_1 = samplePhySpaceParticles(n_particles = 100, startTime = 0, n_obs = 20*10, border = c(-2,-2,2,2), borderBuffer = 0.2, baseVectorFields, trueHSGP_1,
+sampledParticles_1 = samplePhySpaceParticles(n_particles = 100, startTime = 0, n_obs = 20*100, border = c(-2,-2,2,2), borderBuffer = 0.2, baseVectorFields, trueHSGP_1,
                                              M = 2, t_step_mean = 0.001, vel_sigma = 0.001, pos_sigma = 0.001)
 
 sampledParticles = rbind(sampledParticles_1, sampledParticles_2)
 
 sampledParticles$Particle = rep(str_c('Particle', 1:100), each = 200)
 
-sampledParticles_Sub = sampledParticles_1[1:(100*20) * 10 - (10-1),]
+sampledParticles_Sub = sampledParticles_1[1:(50*20) * 100 - (100-1),]
 ggplot(sampledParticles_Sub, aes(x = X1, y = X2, color = Particle)) + geom_point() + theme(legend.position = 'None')
+ggplot(sampledParticles_1, aes(x = X1, y = X2, color = Particle)) + geom_point() + theme(legend.position = 'None')
 
 sim_data_list = list()
 
@@ -1708,63 +1706,77 @@ TrueTrajVals = exp(evaluate2DCosine_fast(true_beta_mat_1, pos_mat = traj_eval_gr
 
 t1 = Sys.time()
 
-real_traj_test_1 = run_rMAP_Trajectory_Multithread(N_samples = 100, sim_data_list = sim_data_list,
-                                       pos_sd = 0.001, vel_sd = 0, M = 1, prior_k = 0.35,
+real_traj_test_pos_way_low = real_traj_test_2
+
+real_traj_test_2 = run_rMAP_Trajectory_Multithread(N_samples = 25, sim_data_list = sim_data_list,
+                                       pos_sd = 1, vel_sd = 1, M = 2, prior_k = 0.35,
                                        prior_l = 1, baseVectorFields_Vec = baseVectorFields_Vec,
-                                       border = c(-2,-2,2,2), N_prop_steps = 5000, traj_eval_grid = traj_eval_grid, print_every = 50, n_threads = 32)
+                                       border = c(-2,-2,2,2), N_prop_steps = 1, traj_eval_grid = traj_eval_grid, print_every = 50, n_threads = 32)
 
 t2 = Sys.time()
 
 t2-t1
 
-max_log_w = max(real_traj_test_1$LogImportanceWeights)
+max_log_w = max(real_traj_test_2$LogImportanceWeights)
 
 
-log_w_scaled = real_traj_test_1$LogImportanceWeights - max_log_w
+log_w_scaled = real_traj_test_2$LogImportanceWeights - max_log_w
 
 importance_weights = exp(log_w_scaled) / sum(exp(log_w_scaled))
 
-which.max(importance_weights)
-which.max(real_traj_test_1$PosteriorNLL)
+
+
+which.min(importance_weights)
+which.max(real_traj_test_2$PosteriorNLL)
+
+hist(importance_weights)
 
 log(importance_weights[38])
 
-W_NLL_df = data.frame(x = log(importance_weights), y = log(real_traj_test_1$PosteriorNLL))
+W_NLL_df = data.frame(x = log(importance_weights), y = log(real_traj_test_2$PosteriorNLL))
 
-plot(log(importance_weights), log(real_traj_test_1$PosteriorNLL))
+plot(log(importance_weights), log(real_traj_test_2$PosteriorNLL))
 abline(a=0, b=1)
 
 lm(y ~ x, data = W_NLL_df[!is.infinite(W_NLL_df$x),])
 
-real_traj_test_1$LogImportanceWeights[44]
-real_traj_test_1$LogImportanceWeights[74]
-real_traj_test_1$LogImportanceWeights[79]
+real_traj_test_2$LogImportanceWeights[44]
+real_traj_test_2$LogImportanceWeights[74]
+real_traj_test_2$LogImportanceWeights[79]
 
 
 
-exp(c(real_traj_test_1$Beta1Posterior[44,], real_traj_test_1$Beta2Posterior[44,]))
-exp(c(real_traj_test_1$Beta1Posterior[86,], real_traj_test_1$Beta2Posterior[86,]))
+exp(c(real_traj_test_2$Beta1Posterior[44,], real_traj_test_2$Beta2Posterior[44,]))
+exp(c(real_traj_test_2$Beta1Posterior[86,], real_traj_test_2$Beta2Posterior[86,]))
 
-exp(c(real_traj_test_1$Beta1Posterior[79,], real_traj_test_1$Beta2Posterior[79,]))
+exp(c(real_traj_test_2$Beta1Posterior[79,], real_traj_test_2$Beta2Posterior[79,]))
 
 
-(real_traj_test_1$Beta2Posterior[order(importance_weights, decreasing = T)])
-(real_traj_test_1$Beta1Posterior[order(importance_weights, decreasing = T)])
+(real_traj_test_2$Beta2Posterior[order(importance_weights, decreasing = T)])
+(real_traj_test_2$Beta1Posterior[order(importance_weights, decreasing = T)])
 
-real_traj_test_1$Traj1Posterior
+real_traj_test_2$Traj1Posterior
 
-sample(exp(real_traj_test_1$Beta1Posterior)*9, size = 1000, replace = T, prob = importance_weights)
+sample(exp(real_traj_test_2$Beta1Posterior)*9, size = 1000, replace = T, prob = importance_weights)
 
 which(importance_weights == sort(importance_weights)[99])
 
-PostTraj1_Mean = rowMeans(real_traj_test_1$Traj1Posterior)
-PostTraj2_Mean = rowMeans(real_traj_test_1$Traj2Posterior)
+#Raw Samples
+
+PostTraj1_Mean = rowMeans(real_traj_test_2$Traj1Posterior)
+PostTraj2_Mean = rowMeans(real_traj_test_2$Traj2Posterior)
+
+mean((PostTraj1_Mean - TrueTrajVals[,1])^2)
+mean((PostTraj2_Mean - TrueTrajVals[,2])^2)
+
+median((PostTraj1_Mean - TrueTrajVals[,1])^2)
+median((PostTraj2_Mean - TrueTrajVals[,2])^2)
 
 hist((PostTraj1_Mean - TrueTrajVals[,1])^2)
 hist((PostTraj2_Mean - TrueTrajVals[,2])^2)
 
-CI_traj_1 = t(apply(real_traj_test_1$Traj1Posterior, MARGIN = 1, FUN = quantile, probs = c(0.025, 0.975)))
-CI_traj_2 = t(apply(real_traj_test_1$Traj2Posterior, MARGIN = 1, FUN = quantile, probs = c(0.025, 0.975)))
+CI_traj_1 = t(apply(real_traj_test_2$Traj1Posterior, MARGIN = 1, FUN = quantile, probs = c(0.025, 0.975)))
+CI_traj_2 = t(apply(real_traj_test_2$Traj2Posterior, MARGIN = 1, FUN = quantile, probs = c(0.025, 0.975)))
 
 mean(CI_traj_1[,1] <= TrueTrajVals[,1] & CI_traj_1[,2] >= TrueTrajVals[,1])
 mean(CI_traj_2[,1] <= TrueTrajVals[,2] & CI_traj_2[,2] >= TrueTrajVals[,2])
@@ -1772,6 +1784,54 @@ mean(CI_traj_2[,1] <= TrueTrajVals[,2] & CI_traj_2[,2] >= TrueTrajVals[,2])
 hist(CI_traj_1[,2] - CI_traj_1[,1])
 hist(CI_traj_2[,2] - CI_traj_2[,1])
 
+
+CI_beta_1 = t(apply(real_traj_test_2$Beta1Posterior, MARGIN = 2, FUN = quantile, probs = c(0.025, 0.975)))
+CI_beta_2 = t(apply(real_traj_test_2$Beta2Posterior, MARGIN = 2, FUN = quantile, probs = c(0.025, 0.975)))
+CI_beta = rbind(CI_beta_1, CI_beta_2)
+true_beta = c(true_beta_mat_1)
+
+CI_beta[,1] <= true_beta & CI_beta[,2] >= true_beta
+
+CI_beta[,2] - CI_beta[,1]
+
+#SIR Samples
+
+SIR_indices = sample(1:25, size = 10000, replace = T, prob = importance_weights)
+
+SIR_Traj1_Post = real_traj_test_2$Traj1Posterior[,SIR_indices]
+SIR_Traj2_Post = real_traj_test_2$Traj2Posterior[,SIR_indices]
+
+SIR_Beta1_Post = real_traj_test_2$Beta1Posterior[SIR_indices,]
+SIR_Beta2_Post = real_traj_test_2$Beta2Posterior[SIR_indices,]
+
+SIR_Traj1_Post_Mean = rowMeans(SIR_Traj1_Post)
+SIR_Traj2_Post_Mean = rowMeans(SIR_Traj2_Post)
+
+mean((SIR_Traj1_Post_Mean - TrueTrajVals[,1])^2)
+mean((SIR_Traj2_Post_Mean - TrueTrajVals[,2])^2)
+
+median((SIR_Traj1_Post_Mean - TrueTrajVals[,1])^2)
+median((SIR_Traj2_Post_Mean - TrueTrajVals[,2])^2)
+
+hist((SIR_Traj1_Post_Mean - TrueTrajVals[,1])^2)
+hist((SIR_Traj2_Post_Mean - TrueTrajVals[,2])^2)
+
+SIR_CI_traj_1 = t(apply(SIR_Traj1_Post, MARGIN = 1, FUN = quantile, probs = c(0.025, 0.975)))
+SIR_CI_traj_2 = t(apply(SIR_Traj2_Post, MARGIN = 1, FUN = quantile, probs = c(0.025, 0.975)))
+
+mean(SIR_CI_traj_1[,1] <= TrueTrajVals[,1] & SIR_CI_traj_1[,2] >= TrueTrajVals[,1])
+mean(SIR_CI_traj_2[,1] <= TrueTrajVals[,2] & SIR_CI_traj_2[,2] >= TrueTrajVals[,2])
+
+SIR_CI_beta_1 = t(apply(SIR_Beta1_Post, MARGIN = 2, FUN = quantile, probs = c(0.025, 0.975)))
+SIR_CI_beta_2 = t(apply(SIR_Beta2_Post, MARGIN = 2, FUN = quantile, probs = c(0.025, 0.975)))
+SIR_CI_beta = rbind(SIR_CI_beta_1, SIR_CI_beta_2)
+true_beta = c(true_beta_mat_1)
+
+SIR_CI_beta[,1] <= true_beta & SIR_CI_beta[,2] >= true_beta
+
+SIR_CI_beta[,2] - SIR_CI_beta[,1]
+
+true_beta_1
 
 ggplot() + geom_histogram(aes(x = (exp(real_traj_test_1$Beta1Posterior)*9)[(exp(real_traj_test_1$Beta1Posterior)*9) < 20]), binwidth = 1) + xlab("Raw Samples for Number of Revolutions")
 ggplot() + geom_histogram(aes(x = real_traj_test_1$Beta2Posterior)) + xlab("Raw Samples for log(Trajectory) for Expanding Field")
